@@ -42,6 +42,7 @@ if(ZPLANE_BUILD_VST3)
   src/Vst3.cpp
   resource/ZPlane.uidesc)
  target_link_libraries(ZPlaneFX PRIVATE sdk zplane_core vstgui_support)
+ smtg_target_add_plugin_resources(ZPlaneFX RESOURCES resource/ZPlane.uidesc)
  if(ZPLANE_WITH_X3_RESEARCH)
   set(_research_zip "${CMAKE_BINARY_DIR}/x3-research.zip")
   file(DOWNLOAD

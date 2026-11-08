@@ -55,6 +55,11 @@ jobs:
           $dest='artifact/125A Z-Plane FX.vst3/Contents/x86_64-win'
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Copy-Item -LiteralPath $plugin.FullName -Destination (Join-Path $dest '125A Z-Plane FX.vst3')
+          $resources='artifact/125A Z-Plane FX.vst3/Contents/Resources'
+          New-Item -ItemType Directory -Force -Path $resources | Out-Null
+          Copy-Item -LiteralPath 'resource/ZPlane.uidesc' -Destination (Join-Path $resources 'ZPlane.uidesc')
+          $ui=Get-Content (Join-Path $resources 'ZPlane.uidesc') -Raw | ConvertFrom-Json
+          if (-not $ui.'vstgui-ui-description'.templates.ZPlaneMain) { throw 'Native VSTGUI main layout missing' }
           $binary=Join-Path $dest '125A Z-Plane FX.vst3'
           if ((Get-Item $binary).Length -lt 100000) { throw 'Implausibly small VST3 binary' }
           $head=[IO.File]::ReadAllBytes((Resolve-Path $binary))
