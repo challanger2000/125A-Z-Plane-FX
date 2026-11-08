@@ -1,0 +1,64 @@
+name: Windows Z-Plane FX development build
+on:
+  push:
+    branches: [develop/v0.1.0]
+    paths:
+      - '.github/workflows/windows-dev.yml'
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - 'tests/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exact Steinberg VST3 SDK 3.8.1
+        shell: pwsh
+        run: |
+          git clone --recursive --branch v3.8.1_build_84 --depth 1 https://github.com/steinbergmedia/vst3sdk.git sdk
+          $actual=(git -C sdk rev-parse HEAD).Trim()
+          if ($actual -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96') { throw "Wrong Steinberg SDK $actual" }
+          $subs=git -C sdk submodule status --recursive
+          if (@($subs).Count -eq 0 -or @($subs | Where-Object { $_ -notmatch '^ [0-9a-f]{40} ' }).Count -gt 0) { throw 'Incomplete SDK submodules' }
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64 -DBUILD_TESTING=ON -DZPLANE_BUILD_VST3=ON -DVST3_SDK_ROOT="$env:GITHUB_WORKSPACE/sdk"
+          if ($LASTEXITCODE -ne 0) { throw 'Configuration failed' }
+      - name: Build prototype, standalone tests and Steinberg Validator
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target ZPlaneFX zplane_core_tests validator --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'MSVC build failed' }
+      - name: Actual Release-mode functional DSP tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'C++ DSP tests failed' }
+      - name: Inspect Windows binary and construct standard VST3 bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $plugin=Get-ChildItem -Path build -Recurse -File -Filter '*.vst3' | Where-Object { $_.Name -eq '125A Z-Plane FX.vst3' } | Select-Object -First 1
+          if (-not $plugin) { throw 'Built Windows VST3 binary missing' }
+          $dest='artifact/125A Z-Plane FX.vst3/Contents/x86_64-win'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item -LiteralPath $plugin.FullName -Destination (Join-Path $dest '125A Z-Plane FX.vst3')
+          $binary=Join-Path $dest '125A Z-Plane FX.vst3'
+          if ((Get-Item $binary).Length -lt 100000) { throw 'Implausibly small VST3 binary' }
+          $head=[IO.File]::ReadAllBytes((Resolve-Path $binary))
+          if ($head[0] -ne 77 -or $head[1] -ne 90) { throw 'Not a Windows PE file' }
+          $validator=Get-ChildItem -Path build -Recurse -File -Filter validator.exe | Select-Object -First 1
+          if (-not $validator) { throw 'Official Steinberg validator unavailable' }
+          & $validator.FullName (Resolve-Path 'artifact/125A Z-Plane FX.vst3').Path
+          if ($LASTEXITCODE -ne 0) { throw 'Steinberg Validator failed on final staged bundle' }
+      - name: Upload DEVELOPMENT build, never mark as release
+        uses: actions/upload-artifact@v4
+        with:
+          name: 125A-Z-Plane-FX-v0.1.0-PROTOTYPE-WINDOWS
+          path: artifact/
+          retention-days: 4
