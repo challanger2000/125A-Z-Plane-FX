@@ -83,6 +83,15 @@ struct Instance {
           "Controller factory");
   require(component->initialize(&host)==kResultOk,"Processor init");
   require(controller->initialize(&host)==kResultOk,"Controller init");
+  // Verify the GUI is actually exposed as a VST3 editor (not just a
+  // .uidesc resource accidentally omitted from the binary build).
+  auto* view=controller->createView(ViewType::kEditor);
+  require(view!=nullptr,"Native VST3 editor view must exist");
+  ViewRect rect{};
+  require(view->getSize(&rect)==kResultOk,"Native VSTGUI editor dimensions");
+  require(rect.right-rect.left>=800&&rect.bottom-rect.top>=400,
+          "Native VSTGUI expected layout size");
+  view->release();
  }
  void setup(int32 sampleFormat,double sampleRate=48000.){
   SpeakerArrangement stereo=SpeakerArr::kStereo;
