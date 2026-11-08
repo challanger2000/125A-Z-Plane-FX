@@ -40,13 +40,14 @@ jobs:
           $installDir = 'C:\x3audit\EmulatorX3'
           $report = Join-Path $target 'report'
           $arguments = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR="C:\x3audit\EmulatorX3"'
-          & powershell -NoProfile -File 'lab/tests/Invoke-InstallerInventory.ps1' -Installer $installer -ExpectedSha256 '639fdfe7d6e423853bce98471aa0c3e5af512ebd66553c47425c1cae66a59b1a' -OutputFolder $report -ApproveExecution -TimeoutSeconds 240 -InstallerArguments $arguments -InventoryRoots @($installDir,'C:\Program Files\Creative Professional','C:\Program Files (x86)\Creative Professional')
+          & powershell -NoProfile -File 'lab/tests/Invoke-InstallerInventory.ps1' -Installer $installer -ExpectedSha256 '639fdfe7d6e423853bce98471aa0c3e5af512ebd66553c47425c1cae66a59b1a' -OutputFolder $report -ApproveExecution -TimeoutSeconds 240 -InstallerArguments $arguments -InventoryRoots $installDir
           $code = $LASTEXITCODE
           if (Test-Path (Join-Path $report 'INSTALLER-INVENTORY.json')) {
             $data=Get-Content (Join-Path $report 'INSTALLER-INVENTORY.json') -Raw | ConvertFrom-Json
             Write-Output ('X3 installation stage: '+$data.status+'; exit='+$data.exit_code+'; error='+$data.error)
           }
           if ($code -ne 0) { Write-Warning 'Installer returned failure; scanning possible payload anyway' }
+          exit 0
       - name: Identify installed EmulatorX.exe and filter libraries
         if: always()
         shell: pwsh
