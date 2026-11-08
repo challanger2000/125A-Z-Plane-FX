@@ -75,6 +75,30 @@ int main() {
  reference3.process(probe.data(),silent.data(),expectedL.data(),expectedR.data(),64,1.,false);
  REQUIRE(std::memcmp(selectedL.data(),expectedL.data(),64*sizeof(float))==0);
  REQUIRE(std::memcmp(selectedR.data(),expectedR.data(),64*sizeof(float))==0);
+ // X3 wet/bypass automation must not jump abruptly at the event
+ // boundary, and must be independent of host block partitioning.
+ zplane::X3ResearchAdapter smooth,partitioned;
+ REQUIRE(smooth.load(root,error)&&partitioned.load(root,error));
+ REQUIRE(smooth.set(36,.35f,.65f,48000)&&partitioned.set(36,.35f,.65f,48000));
+ std::array<double,512> signal{},none{},initialL{},initialR{},fadedL{},fadedR{},splitL{},splitR{};
+ signal.fill(.25);
+ smooth.process(signal.data(),none.data(),initialL.data(),initialR.data(),512,1.,false);
+ partitioned.process(signal.data(),none.data(),splitL.data(),splitR.data(),512,1.,false);
+ smooth.process(signal.data(),none.data(),fadedL.data(),fadedR.data(),512,1.,true);
+ partitioned.process(signal.data(),none.data(),splitL.data(),splitR.data(),17,1.,true);
+ partitioned.process(signal.data()+17,none.data()+17,splitL.data()+17,splitR.data()+17,495,1.,true);
+ REQUIRE(fadedL==splitL&&fadedR==splitR);
+ REQUIRE(fadedL[0]!=signal[0]);  // Fade must not jump to dry immediately
+ REQUIRE(fadedL[239]==signal[239]); // 5 ms at 48 kHz
+ REQUIRE(fadedL[511]==signal[511]);
+ // At bypass, 64-bit PCM must be exactly dry, not quantized to float32.
+ std::array<double,64> dryPrecise{},dryRight{},exactL{},exactR{};
+ for(std::size_t i=0;i<64;++i){
+  dryPrecise[i]=.123456789012345+static_cast<double>(i)*.000000000000001;
+  dryRight[i]=-.234567890123456-static_cast<double>(i)*.000000000000001;
+ }
+ smooth.process(dryPrecise.data(),dryRight.data(),exactL.data(),exactR.data(),64,1.,true);
+ REQUIRE(exactL==dryPrecise&&exactR==dryRight);
  REQUIRE(nonzero>0);
  std::printf("55 original X3 modes * 4 sample rates: %u plugin PCM samples bit-identical to reference implementation\n",checked);
  return EXIT_SUCCESS;
