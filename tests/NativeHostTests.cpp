@@ -94,10 +94,10 @@ struct Instance {
           "Native VSTGUI expected layout size");
   view->release();
  }
- void setup(int32 sampleFormat,double sampleRate=48000.){
+ void setup(int32 sampleFormat,double sampleRate=48000.,int32 maxBlock=512){
   SpeakerArrangement stereo=SpeakerArr::kStereo;
   require(audio->setBusArrangements(&stereo,1,&stereo,1)==kResultOk,"Stereo arrangement");
-  ProcessSetup setup{};setup.sampleRate=sampleRate;setup.maxSamplesPerBlock=512;
+  ProcessSetup setup{};setup.sampleRate=sampleRate;setup.maxSamplesPerBlock=maxBlock;
   setup.processMode=kRealtime;setup.symbolicSampleSize=sampleFormat;
   require(audio->setupProcessing(setup)==kResultOk,"setupProcessing");
   const auto tail=audio->getTailSamples();
@@ -148,12 +148,13 @@ void render(Instance& inst,int32 format,ParameterChanges* changes,bool verify){
  }
 }
 void exerciseDenseAutomation(Module& module) {
- // Adversarial 4096 host events (the documented capacity). Exercise
- // sample-time ordering with eight events per sample, independently of
+ // Adversarial 4096 host events (the documented capacity). Use distinct offsets:
+ // Steinberg's queue coalesces repeated points at one offset, which made
+ // our earlier overflow fixture invalid. Exercise sample-time order independently of
  // the six standalone CTests.
  Instance host(module);
- host.setup(kSample32);
- std::array<float,512> inL{},inR{},outL{},outR{};
+ host.setup(kSample32,48000.,4096);
+ std::array<float,4096> inL{},inR{},outL{},outR{};
  for(std::size_t n=0;n<inL.size();++n)inL[n]=n%2==0?.125f:-.125f;
  Sample32* inputs[]{inL.data(),inR.data()};
  Sample32* outputs[]{outL.data(),outR.data()};
@@ -161,7 +162,7 @@ void exerciseDenseAutomation(Module& module) {
  in.numChannels=out.numChannels=2;
  in.channelBuffers32=inputs;out.channelBuffers32=outputs;
  ProcessData data{};
- data.numSamples=512;
+ data.numSamples=4096;
  data.numInputs=data.numOutputs=1;
  data.inputs=&in;data.outputs=&out;
  data.symbolicSampleSize=kSample32;data.processMode=kRealtime;
@@ -171,7 +172,7 @@ void exerciseDenseAutomation(Module& module) {
  require(wet!=nullptr,"4096-event parameter queue");
  for(int i=0;i<4096;++i){
   int32 point=0;
-  const auto offset=i/8;
+  const auto offset=i;
   const auto normalized=(i%2)?0.99:0.01;
   require(wet->addPoint(offset,normalized,point)==kResultOk,
           "VST3 queue can hold dense events");
@@ -179,7 +180,7 @@ void exerciseDenseAutomation(Module& module) {
  data.inputParameterChanges=&changes;
  require(host.audio->process(data)==kResultOk,
          "4096 densely automated edits must not overrun event timeline");
- for(int i=0;i<512;++i)
+ for(int i=0;i<4096;++i)
   require(std::isfinite(outL[static_cast<std::size_t>(i)])
       &&outR[static_cast<std::size_t>(i)]==0.f,
       "Dense automation must remain finite and stereo-separated");
@@ -187,7 +188,7 @@ void exerciseDenseAutomation(Module& module) {
  // parameter edits or run out of bounds.
  auto* queue=changes.getParameterData(0);
  int32 added=0;
- require(queue->addPoint(511,.25,added)==kResultOk,"Overflow fixture");
+ require(queue->addPoint(4096,.25,added)==kResultOk,"Overflow fixture");
  require(host.audio->process(data)!=kResultOk,"Overflow must be reported");
  host.stop();
  std::cout<<"NATIVE HOST PASS: 4096 timed edits, finite PCM, overflow rejection\\n";
