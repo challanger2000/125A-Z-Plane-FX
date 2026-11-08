@@ -277,7 +277,7 @@ public:
  }
  tresult PLUGIN_API setComponentState(IBStream* stream) override {
   if(!stream)return kInvalidArgument;IBStreamer st(stream,kLittleEndian);
-  uint32 magic=0,version=0;if(!st.readInt32u(magic)||!st.readInt32u(version)||magic!=kMagic||version!=1)return kResultFalse;
+  uint32 magic=0,version=0;if(!st.readInt32u(magic)||!st.readInt32u(version)||magic!=kMagic||(version!=1&&version!=2))return kResultFalse;
   auto values=defaults;
   for(std::size_t i=0;i<(version==1?5u:6u);++i){auto& p=values[i];if(!st.readDouble(p)||!std::isfinite(p)||p<0.||p>1.)return kResultFalse;}
   for(ParamID id=0;id<values.size();++id)setParamNormalized(id,values[id]);
