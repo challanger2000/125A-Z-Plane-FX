@@ -76,6 +76,32 @@ jobs:
           if ($factory.coefficient_and_audio_cases -ne 924 -or $factory.packed_decoder_values_checked -ne 65536 -or $factory.maximum_absolute_audio_difference -ne 0) { throw 'Factory comparisons insufficient' }
           if ($extended.coefficient_and_audio_cases -ne 3156 -or $extended.standard_filters -ne 17 -or $extended.programmable_filters -ne 5) { throw 'Extended comparisons insufficient' }
           Write-Output ('X3 native filter validation PASS: factory '+$factory.coefficient_and_audio_cases+' cases, decoder '+$factory.packed_decoder_values_checked+', extended '+$extended.coefficient_and_audio_cases+' cases')
+      - name: Verify dynamic morph smoothing, coefficient ramps and adaptive gain with original X3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'x3-zplane'
+          $source=Join-Path $root 'source'
+          $base=(Get-ChildItem -LiteralPath $source -Recurse -File -Filter 'validate_runtime.py' | Select-Object -First 1).Directory.Parent.FullName
+          if (-not $base) { throw 'Runtime test source missing' }
+          Push-Location $base
+          try {
+            python research/validate_runtime.py
+            if ($LASTEXITCODE -ne 0) { throw 'Original X3 runtime reference generation failed' }
+            $vswhere='C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+            $vs=(& $vswhere -latest -products * -property installationPath).Trim()
+            if (-not $vs) { throw 'VS2022 C++ toolchain missing' }
+            $vcvars=Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+            if (-not (Test-Path -LiteralPath $vcvars)) { throw 'MSVC environment missing' }
+            $command='call "'+$vcvars+'" >nul && cl /nologo /std:c++17 /O2 /fp:strict /EHsc research\check_runtime.cpp /Fe:research\check_runtime.exe && research\check_runtime.exe research\runtime-vectors.bin'
+            cmd /d /c $command
+            if ($LASTEXITCODE -ne 0) { throw 'Native C++ dynamic filters diverged from X3 instruction reference' }
+          } finally { Pop-Location }
+          $pending=Get-Content (Join-Path $base 'research/runtime-validation-pending.json') -Raw | ConvertFrom-Json
+          if ($pending.lag_ticks -ne 2048 -or $pending.ramp_cases -ne 128 -or $pending.gain_sample_pairs -ne 8192) { throw 'Runtime reference coverage inadequate' }
+          $out=[ordered]@{status='ORIGINAL_X3_NATIVE_CXX_PASS';source_sha256=$pending.source_sha256;lag_ticks=$pending.lag_ticks;ramp_cases=$pending.ramp_cases;ramp_audio_values=$pending.ramp_audio_values;gain_sample_pairs=$pending.gain_sample_pairs;limitations=$pending.boundaries}
+          $out | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $root 'reports/runtime-validation.json') -Encoding UTF8
+          Write-Output ('Original X3 native dynamic filter validation PASS: '+$pending.lag_ticks+' morph updates, '+$pending.ramp_cases+' coefficient ramp cases, '+$pending.gain_sample_pairs+' gain pairs')
       - name: Clean proprietary original files from runner workspace
         if: always()
         shell: pwsh
