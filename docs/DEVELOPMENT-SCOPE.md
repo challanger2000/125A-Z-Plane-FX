@@ -74,3 +74,13 @@ The stand-alone reconstruction tool at `tools/reconstruct_x3_banks.py` verifies 
 - Source-only documentation edits after that commit do not affect the tested binary.
 
 **Still NOT VERIFIED:** full independent 125A Plugin Test Lab audit, paced ASIO stress and strict worst-case audio deadline; real DAW owner acceptance; programmable GUI editing; all 55 types end-to-end through host automation; modulation/morph control timing equivalence beyond covered reference vectors; external code/data commercialization and licensing clearance. No FULL AUDIT or release approval.
+
+## All 55 filter types through the actual Windows VST3 — 2026-11-08 20:36 UTC
+
+- Source commit `6ac668be1163e2dbc0629a6d8bd14916613b6ead`
+- [GitHub Actions 42520808592](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42520808592): **SUCCESS**
+- **440 hosted filter cases PASS:** all 55 X3 filter IDs × 4 supported sample rates (44.1/48/96/192 kHz) × both 32-bit and 64-bit VST3 buffers, stereo independently compared sample-by-sample against the original research core using the verified reconstructed banks.
+- Native test creates actual processor and controller instances from the staged Windows binary, exercises host parameter queues and verifies L/R PCM and finite processing.
+- **6/6 CTests PASS**, official Steinberg Validator **47/47 PASS** and native packaged host suite PASS.
+- A Win32 `min/max` header collision caused an initial red MSVC run; the test header now defines `NOMINMAX` before including `windows.h`. The subsequent exact build passed.
+- No in-host high-density filter automation stress, morph timing characterization, 125A universal test-lab audit, real owner DAW/ASIO, or finished VSTGUI. All remain NOT VERIFIED. This evidence does not justify a FINAL release.
