@@ -7,9 +7,9 @@ The plugin now has two DSP paths:
 - **Legacy filters:** four independent biquad filters (low-pass, high-pass, band-pass, notch) with stereo input/output, mix and bypass.
 - **Experimental X3 path:** filter selector with 33 factory, 17 standard and 5 programmable Emulator X3 filter types, linked against the [public research implementation](https://github.com/noneofyourbisness/EMU-Emulator-X3-ZPlaneFilter-Research) only in the opt-in development build. The reference C++ sources are obtained from their original archive at a pinned checksum during CMake configuration, not committed to this repository.
 
-**The 55-filter path requires original coefficient banks that are not included**. Without them, selecting an X3 filter returns dry audio, not a surrogate filter. The three files are `factory-bank.bin`, `standard-bank.bin` and `morph-support.bin`, placed in `%LOCALAPPDATA%\125A\ZPlaneFX\Banks` or the directory given by `ZPLANE_X3_BANK_DIR`.
+**The 55-filter path requires original coefficient banks, not committed to this repository.** All three have now been reconstructed from the original-reference recordings and test vectors and validated against both native C++ reference tests. The user receives the banks separately for local testing. Without installed banks, selecting an X3 filter returns dry audio, not a surrogate filter. The three files are `factory-bank.bin`, `standard-bank.bin` and `morph-support.bin`, placed in `%LOCALAPPDATA%\125A\ZPlaneFX\Banks` or the directory given by `ZPLANE_X3_BANK_DIR`.
 
-This branch exposes the actual research filter routines, but the CTest coverage so far exercises the **55 dispatch paths with synthetic bank fixtures**. It does *not* prove sound identity to X3 with original banks.
+This branch exposes the actual research filter routines. Windows CI now builds **six** Release-mode CTests, including 55 filter modes with real reconstructed banks across 44.1/48/96/192 kHz and the original independent X3 output reference vectors. The packaged VST3 is also loaded and tested in a native Windows host using the original-bank data. Those tests demonstrate bit-accurate results for the covered X3 reference cases, not exhaustive full-product or hardware emulation.
 
 ## Windows build
 
@@ -17,7 +17,7 @@ Build Windows x64 with C++23 and pinned Steinberg VST3 SDK `v3.8.1_build_84` (co
 
 Enable `-DZPLANE_WITH_X3_RESEARCH=ON` to compile the experimental external research backend. A build without this option retains the legacy DSP and the new state format.
 
-[Verified Windows prototype and tests, run 42516823505](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42516823505): **3/3 CTests; 47/47 Steinberg Validator; native packaged host test PASS**. It contains no original banks.
+[Verified Windows original-bank prototype, run 42519613802](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42519613802): **6/6 CTests; 47/47 Steinberg Validator; real-bank native packaged VST3 test PASS**. The downloaded VST3 does NOT contain the bank binaries: install the three locally provided `.bin` files in `%LOCALAPPDATA%\\125A\\ZPlaneFX\\Banks` and restart the DAW.
 
 ## Compatibility and limitations
 
