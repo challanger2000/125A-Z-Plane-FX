@@ -456,14 +456,36 @@ void exerciseNativeGUIOptionMenus(Module& module) {
   nativeGuiKey(canvas,VK_DOWN);
   if(bridge->updates[0]>legacyEdits) {
    const auto actual=inst.controller->getParamNormalized(0);
-   require(std::isfinite(actual)&&actual>0.&&actual<=1.,
-           "Native Legacy menu Down must select a valid nonzero option");
+   require(std::isfinite(actual)&&std::fabs(actual-1./3.)<1.e-6,
+           "Native Legacy menu must select exact index 1 / 3");
+   for(int index=2;index<=3;++index){
+    const auto priorEdits=bridge->updates[0];
+    nativeGuiKey(canvas,VK_DOWN);
+    require(bridge->updates[0]>priorEdits,
+            "Every Legacy menu index must generate a real host edit");
+    require(std::fabs(inst.controller->getParamNormalized(0)-index/3.)<1.e-6,
+            "Legacy option menu must expose all four valid selections");
+   }
+   nativeGuiKey(canvas,VK_DOWN);
+   require(std::fabs(inst.controller->getParamNormalized(0)-1.)<1.e-6,
+           "Legacy selector must not step past last of four modes");
    legacySelected=true;
   }
   if(bridge->updates[5]>x3Edits) {
    const auto actual=inst.controller->getParamNormalized(5);
-   require(std::isfinite(actual)&&actual>0.&&actual<=1.,
-           "Native X3 menu Down must select a valid nonzero option");
+   require(std::isfinite(actual)&&std::fabs(actual-1./55.)<1.e-6,
+           "Native X3 menu must select exact X3 filter index 1 / 55");
+   for(int index=2;index<=55;++index){
+    const auto priorEdits=bridge->updates[5];
+    nativeGuiKey(canvas,VK_DOWN);
+    require(bridge->updates[5]>priorEdits,
+            "Every X3 menu index must generate a real host edit");
+    require(std::fabs(inst.controller->getParamNormalized(5)-index/55.)<1.e-6,
+            "X3 COptionMenu must expose all 55 real filter modes");
+   }
+   nativeGuiKey(canvas,VK_DOWN);
+   require(std::fabs(inst.controller->getParamNormalized(5)-1.)<1.e-6,
+           "X3 menu must not advance beyond filter 55");
    x3Selected=true;
   }
  }
@@ -1025,6 +1047,92 @@ void exerciseX3FamilyWetBypass(Module& module,int32 format,unsigned rate) {
           <<(format==kSample32?32:64)<<"-bit "<<rate<<" Hz, "
           <<"exact dry PCM and irregular host block partitions\\n";
 }
+void exerciseX3TimedMorphResonance(Module& module) {
+ // In-host automation must not depend on the host's arbitrary callback
+ // partitioning. A third, unautomated real instance is the negative
+ // signal control: changing Morph/Q must produce distinguishable PCM.
+ constexpr int kFrames=4096;
+ struct Edit {ParamID param;int at;double value;};
+ constexpr std::array<Edit,14> edits{{
+  {5,0,1./55.},{1,0,.35},{2,0,.65},
+  {1,127,.95},{2,210,.05},{1,257,.15},{2,411,1.},
+  {1,505,0.},{2,777,.5},{1,1023,1.},{2,1609,0.},
+  {1,1951,.41},{2,2507,.91},{1,3501,.6}
+ }};
+ std::array<float,kFrames> inL{},inR{},wholeL{},wholeR{},splitL{},splitR{},fixedL{},fixedR{};
+ for(int n=0;n<kFrames;++n){
+  const auto i=static_cast<std::size_t>(n);
+  inL[i]=static_cast<float>(.031*std::sin(n*.11)+.011*std::cos(n*.032)+(n%257==0?.1:0.));
+  inR[i]=static_cast<float>(.027*std::cos(n*.091)-.014*std::sin(n*.041)-(n%193==0?.075:0.));
+ }
+ auto render=[&](Instance& instance,int begin,int end,
+                 std::array<float,kFrames>& outL,
+                 std::array<float,kFrames>& outR,bool automated){
+  ParameterChanges changes;
+  for(ParamID id:std::array<ParamID,3>{{5,1,2}}){
+   int32 slot=0;
+   auto* q=changes.addParameterData(id,slot);
+   require(q!=nullptr,"X3 Morph/Q host parameter queue");
+   for(const auto& edit:edits) {
+    if(edit.param!=id||edit.at<begin||edit.at>=end||
+       (!automated&&edit.at!=0))continue;
+    int32 point=0;
+    require(q->addPoint(edit.at-begin,edit.value,point)==kResultOk,
+            "X3 Morph/Q sample-offset automation point");
+   }
+  }
+  Sample32* input[]{inL.data()+begin,inR.data()+begin};
+  Sample32* output[]{outL.data()+begin,outR.data()+begin};
+  AudioBusBuffers in{},out{};
+  in.numChannels=out.numChannels=2;
+  in.channelBuffers32=input;out.channelBuffers32=output;
+  ProcessData data{};
+  data.numSamples=end-begin;data.numInputs=data.numOutputs=1;
+  data.inputs=&in;data.outputs=&out;data.symbolicSampleSize=kSample32;
+  data.processMode=kRealtime;data.inputParameterChanges=&changes;
+  require(instance.audio->process(data)==kResultOk,
+          "X3 Morph/Q native hosted processing");
+ };
+ Instance whole(module),partitioned(module),fixed(module);
+ whole.setup(kSample32,48000.,kFrames);
+ partitioned.setup(kSample32,48000.,kFrames);
+ fixed.setup(kSample32,48000.,kFrames);
+ render(whole,0,kFrames,wholeL,wholeR,true);
+ constexpr std::array<int,17> bounds{{
+  0,1,64,129,211,258,410,501,508,777,1026,1608,1953,2505,3503,3987,4096
+ }};
+ for(std::size_t b=1;b<bounds.size();++b)
+  render(partitioned,bounds[b-1],bounds[b],splitL,splitR,true);
+ render(fixed,0,kFrames,fixedL,fixedR,false);
+ unsigned affected=0;
+ for(int n=0;n<kFrames;++n){
+  const auto i=static_cast<std::size_t>(n);
+  require(std::isfinite(wholeL[i])&&std::isfinite(wholeR[i]),
+          "X3 Morph/Q output must remain finite");
+  if(wholeL[i]!=splitL[i]||wholeR[i]!=splitR[i]){
+   std::cerr<<"X3 Morph/Q host-block mismatch sample "<<n
+            <<" whole="<<wholeL[i]<<" split="<<splitL[i]<<"\\n";
+   require(false,"Morph/Q audio must not depend on host block partitions");
+  }
+  if(n>400&&(std::fabs(wholeL[i]-fixedL[i])>1.e-5f||
+             std::fabs(wholeR[i]-fixedR[i])>1.e-5f))++affected;
+ }
+ require(affected>100,
+         "Negative control: ignored X3 Morph/Q automation must differ in actual PCM");
+ Steinberg::ResizableMemoryIBStream state;
+ require(whole.component->getState(&state)==kResultOk,
+         "X3 Morph/Q post-automation state must save");
+ state.rewind();
+ require(whole.controller->setComponentState(&state)==kResultOk,
+         "X3 Morph/Q state must recall");
+ require(std::fabs(whole.controller->getParamNormalized(1)-.6)<1.e-12&&
+         std::fabs(whole.controller->getParamNormalized(2)-.91)<1.e-12&&
+         std::fabs(whole.controller->getParamNormalized(5)-1./55.)<1.e-12,
+         "X3 Morph/Q last host events must survive state recall");
+ fixed.stop();partitioned.stop();whole.stop();
+ std::cout<<"NATIVE HOST PASS: dynamic X3 Morph/Q automation, irregular blocks, "
+          <<"finite stereo PCM and frozen-parameter negative control\\n";
+}
 void exercisePacedX3(Module& module) {
  // Host-realistic, bounded 256-frame pacing. Measure actual process()
  // call duration separately from scheduler wakeup lag. Do not claim an
@@ -1148,6 +1256,7 @@ void exerciseX3(Module& module) {
  exerciseX3TimedFilterSwitch(module,factory,extended);
  exerciseX3LegacyFamilySwitch(module,factory,extended);
  exerciseX3RapidFamilyRetarget(module,factory,extended);
+ exerciseX3TimedMorphResonance(module);
  for(unsigned rate:{44100u,48000u,96000u,192000u}){
   exerciseX3FamilyWetBypass<float>(module,kSample32,rate);
   exerciseX3FamilyWetBypass<double>(module,kSample64,rate);
