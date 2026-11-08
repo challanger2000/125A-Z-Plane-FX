@@ -167,7 +167,7 @@ void exercise(Module& module,int32 format){
 }
 int main(int argc,char** argv){
  require(argc==2,"Expected packaged VST3 binary path");
- Module module(std::filesystem::path(argv[1]));
+ Module module{std::filesystem::path(argv[1])};
  exercise(module,kSample32);
  exercise(module,kSample64);
  std::cout<<"NATIVE HOST PASS: factory, stereo PCM, timed bypass, float/double, fresh recall, corrupt-state rejection\n";
