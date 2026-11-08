@@ -132,8 +132,11 @@ public:
      primaryL_=nextL_;primaryR_=nextR_;primary_=next_;
     }
    }
-   outL[i]=static_cast<Sample>(amount==0.?a:double(a)+(double(wa)-a)*amount);
-   outR[i]=static_cast<Sample>(amount==0.?b:double(b)+(double(wb)-b)*amount);
+   // At 100% wet, preserve the original float32 DSP output exactly.
+   // A double-precision dry/wet subtraction+addition can otherwise
+   // introduce a one-ULP difference for tiny impulses.
+   outL[i]=static_cast<Sample>(amount<=0.?a:amount>=1.?wa:double(a)+(double(wa)-a)*amount);
+   outR[i]=static_cast<Sample>(amount<=0.?b:amount>=1.?wb:double(b)+(double(wb)-b)*amount);
   }
  }
  void completeDeferred() {
