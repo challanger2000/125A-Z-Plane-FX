@@ -2,6 +2,7 @@
 // Tests real VST3 factory, 32/64-bit rendering, automation and project recall.
 #include "FilterCore.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
+#include "base/source/fobject.h"
 #include "public.sdk/source/vst/hosting/parameterchanges.h"
 #include "public.sdk/source/vst/utility/memoryibstream.h"
 #include "pluginterfaces/base/ipluginbase.h"
@@ -242,6 +243,171 @@ void exerciseDenseAutomation(Module& module) {
  reference.stop();
  host.stop();
  std::cout<<"NATIVE HOST PASS: 4096 timed edits, finite PCM, overflow rejection\\n";
+}
+// Native GUI edit bridge: receives actual VSTGUI mouse gestures and
+// forwards each edit into the packaged processor's real VST3 parameter
+// queue (zero-sample control calls, no audio thread involved).
+class NativeGUIEditBridge final : public FObject,public IComponentHandler {
+ IAudioProcessor* processor_{};
+public:
+ std::array<unsigned,6> starts{},updates{},ends{};
+ bool failed{false};
+ explicit NativeGUIEditBridge(IAudioProcessor* p):processor_(p){}
+ tresult PLUGIN_API beginEdit(ParamID id) override {
+  if(id<starts.size())++starts[id];
+  return kResultOk;
+ }
+ tresult PLUGIN_API performEdit(ParamID id,ParamValue value) override {
+  if(id<updates.size())++updates[id];
+  ParameterChanges changes;
+  int32 slot=0,point=0;
+  auto* q=changes.addParameterData(id,slot);
+  if(!q||q->addPoint(0,value,point)!=kResultOk){
+   failed=true;return kResultFalse;
+  }
+  ProcessData data{};
+  data.numSamples=0;data.inputParameterChanges=&changes;
+  data.symbolicSampleSize=kSample32;data.processMode=kRealtime;
+  const auto result=processor_->process(data);
+  if(result!=kResultOk)failed=true;
+  return result;
+ }
+ tresult PLUGIN_API endEdit(ParamID id) override {
+  if(id<ends.size())++ends[id];
+  return kResultOk;
+ }
+ tresult PLUGIN_API restartComponent(int32) override {return kResultOk;}
+ OBJ_METHODS(NativeGUIEditBridge,FObject)
+ DEFINE_INTERFACES DEF_INTERFACE(IComponentHandler) END_DEFINE_INTERFACES(FObject)
+ REFCOUNT_METHODS(FObject)
+};
+void nativeGuiPump() {
+ MSG msg{};
+ for(int pass=0;pass<4;++pass){
+  while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){
+   TranslateMessage(&msg);DispatchMessageW(&msg);
+  }
+  Sleep(5);
+ }
+}
+HWND nativeGuiTarget(HWND host,int& x,int& y) {
+ POINT local{x,y};
+ HWND target=ChildWindowFromPointEx(host,local,CWP_SKIPINVISIBLE|CWP_SKIPDISABLED);
+ if(target&&target!=host){
+  ClientToScreen(host,&local);
+  ScreenToClient(target,&local);
+  x=local.x;y=local.y;
+  return target;
+ }
+ return host;
+}
+void nativeGuiClick(HWND host,int x,int y,WPARAM modifier=0) {
+ int hx=x,hy=y;
+ HWND target=nativeGuiTarget(host,hx,hy);
+ SetFocus(target);
+ SendMessageW(target,WM_LBUTTONDOWN,MK_LBUTTON|modifier,MAKELPARAM(hx,hy));
+ nativeGuiPump();
+ SendMessageW(target,WM_LBUTTONUP,modifier,MAKELPARAM(hx,hy));
+ nativeGuiPump();
+}
+void nativeGuiDrag(HWND host,int startX,int startY,int finalX,int finalY) {
+ int hx=startX,hy=startY;
+ HWND target=nativeGuiTarget(host,hx,hy);
+ SetForegroundWindow(host);SetFocus(target);
+ POINT start{startX,startY};
+ ClientToScreen(host,&start);
+ SetCursorPos(start.x,start.y);
+ nativeGuiPump();
+ SendMessageW(target,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(hx,hy));
+ nativeGuiPump();
+ POINT end{finalX,finalY};
+ ClientToScreen(host,&end);
+ SetCursorPos(end.x,end.y);
+ nativeGuiPump();
+ ScreenToClient(target,&end);
+ SendMessageW(target,WM_MOUSEMOVE,MK_LBUTTON,MAKELPARAM(end.x,end.y));
+ nativeGuiPump();
+ SendMessageW(target,WM_LBUTTONUP,0,MAKELPARAM(end.x,end.y));
+ nativeGuiPump();
+}
+void exerciseNativeGUIEdits(Module& module) {
+ // Three sliders plus Bypass. Option-menu selection requires a separate
+ // modal/menu harness and is intentionally NOT claimed as GUI PASS here.
+ Instance inst(module);
+ inst.setup(kSample32,48000.,512);
+ auto* bridge=new NativeGUIEditBridge(inst.audio);
+ require(inst.controller->setComponentHandler(bridge)==kResultOk,
+         "Native GUI host component handler");
+ HWND parent=CreateWindowExW(0,L"STATIC",L"Z-Plane GUI control QA",
+        WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+        40,40,940,540,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+ require(parent!=nullptr,"Native GUI control window");
+ ShowWindow(parent,SW_SHOWNA);UpdateWindow(parent);
+ auto* view=inst.controller->createView(ViewType::kEditor);
+ require(view!=nullptr,"Create real GUI control editor");
+ require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
+         "GUI control editor attach");
+ ViewRect rect{0,0,900,470};
+ require(view->onSize(&rect)==kResultOk,"GUI control host onSize");
+ nativeGuiPump();
+ struct SliderPoint {ParamID id;int x;int y;int width;};
+ const std::array<SliderPoint,3> sliders{{
+  {1,34,278,390},{2,473,278,391},{3,34,369,390}
+ }};
+ for(const auto& slider:sliders){
+  require(inst.controller->setParamNormalized(slider.id,.14)==kResultTrue,
+          "Initialize native VSTGUI slider");
+  nativeGuiPump();
+  const auto before=inst.controller->getParamNormalized(slider.id);
+  const auto count=bridge->updates[slider.id];
+  nativeGuiDrag(parent,slider.x+slider.width/5,slider.y,
+                      slider.x+slider.width*4/5,slider.y);
+  const auto after=inst.controller->getParamNormalized(slider.id);
+  if(!(std::isfinite(after)&&after>=0.&&after<=1.&&
+       std::fabs(after-before)>.05&&bridge->updates[slider.id]>count)){
+   std::cerr<<"Native GUI gesture FAIL id="<<slider.id
+            <<" before="<<before<<" after="<<after
+            <<" hostUpdates="<<bridge->updates[slider.id]-count<<"\\n";
+   require(false,"Native GUI slider must forward actual pointer drag");
+  }
+  require(bridge->starts[slider.id]>0&&
+          bridge->starts[slider.id]==bridge->ends[slider.id],
+          "Native GUI drag beginEdit/endEdit balanced");
+  Steinberg::ResizableMemoryIBStream state;
+  require(inst.component->getState(&state)==kResultOk,
+          "Native pointer edit must update processor save state");
+  state.rewind();
+  require(inst.controller->setComponentState(&state)==kResultOk,
+          "Native GUI pointer edit must survive state roundtrip");
+  require(std::fabs(inst.controller->getParamNormalized(slider.id)-after)<1.e-6,
+          "Native GUI slider processor-state roundtrip");
+  nativeGuiClick(parent,slider.x+slider.width/2,slider.y,MK_CONTROL);
+  const auto reset=inst.controller->getParamNormalized(slider.id);
+  require(std::fabs(reset-(slider.id==3?1.:.5))<1.e-6,
+          "Native GUI Ctrl+left must reset actual parameter default");
+ }
+ require(inst.controller->setParamNormalized(4,0.)==kResultTrue,
+         "Initialize native bypass checkbox OFF");
+ nativeGuiPump();
+ const auto before=bridge->updates[4];
+ nativeGuiClick(parent,555,370);
+ require(inst.controller->getParamNormalized(4)>.5&&bridge->updates[4]>before,
+         "Native bypass checkbox must click ON and automate");
+ nativeGuiClick(parent,555,370);
+ require(inst.controller->getParamNormalized(4)<.5,
+         "Native bypass checkbox must click OFF and automate");
+ require(bridge->starts[4]>0&&bridge->starts[4]==bridge->ends[4],
+         "Native bypass host gestures balanced");
+ require(!bridge->failed,"Native GUI host forwarding must not reject edit");
+ require(view->removed()==kResultOk,"GUI control editor detach");
+ view->release();
+ require(DestroyWindow(parent)!=0,"Destroy native GUI control parent");
+ require(inst.controller->setComponentHandler(nullptr)==kResultOk,
+         "Unbind native GUI host component handler");
+ bridge->release();
+ inst.stop();
+ std::cout<<"NATIVE GUI HOST PASS: Morph/Q/Wet drags, Ctrl-default reset, "
+          <<"Bypass on/off, host edit lifecycle and processor project recall\\n";
 }
 void exerciseAttachedEditor(Module& module) {
  // The previous smoke only queried the 900x470 dimensions. That cannot
@@ -896,6 +1062,7 @@ int main(int argc,char** argv){
  exercise(module,kSample64);
  exerciseDenseAutomation(module);
  exerciseAttachedEditor(module);
+ exerciseNativeGUIEdits(module);
 #ifdef ZPLANE_WITH_X3_RESEARCH
  exerciseX3(module);
  exercisePacedX3(module);
