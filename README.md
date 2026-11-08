@@ -1,17 +1,28 @@
-# 125A Z-Plane FX — development 0.1.0
+# 125A Z-Plane FX — Windows VST3 development v0.1.0
 
-**Status: EARLY PROTOTYPE — NOT an E-MU filter emulation or finished release.**
+**Research prototype only. Not a finished or authorized commercial E-MU emulation.**
 
-Windows x64 VST3 audio effect. Currently the independently written **reference biquad filter** supports low-pass, high-pass, band-pass and notch, with stereo processing, wet/dry and bypass. This is a host and DSP integration foundation, **not** the recovered 55-filter implementation.
+The plugin now has two DSP paths:
 
-## Rights / provenance
-The external [Emulator X3 filter research](https://github.com/noneofyourbisness/EMU-Emulator-X3-ZPlaneFilter-Research) contains a useful independently verified technical study. Its public repository does **not** explicitly grant a reuse license, and its own README warns that some data derives from a commercial installation. No external source, coefficient bank, extracted table, ROM, installer or proprietary code is bundled here. A documented permission/provenance decision is mandatory before integrating any external filter implementation.
+- **Legacy filters:** four independent biquad filters (low-pass, high-pass, band-pass, notch) with stereo input/output, mix and bypass.
+- **Experimental X3 path:** filter selector with 33 factory, 17 standard and 5 programmable Emulator X3 filter types, linked against the [public research implementation](https://github.com/noneofyourbisness/EMU-Emulator-X3-ZPlaneFilter-Research) only in the opt-in development build. The reference C++ sources are obtained from their original archive at a pinned checksum during CMake configuration, not committed to this repository.
 
-## Source
-C++23, Steinberg VST3 SDK pinned to tag `v3.8.1_build_84`, commit `3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96`. Windows x64 only. No custom GUI yet. No release approval.
+**The 55-filter path requires original coefficient banks that are not included**. Without them, selecting an X3 filter returns dry audio, not a surrogate filter. The three files are `factory-bank.bin`, `standard-bank.bin` and `morph-support.bin`, placed in `%LOCALAPPDATA%\125A\ZPlaneFX\Banks` or the directory given by `ZPLANE_X3_BANK_DIR`.
 
-## Build
-Configure with CMake, `-DVST3_SDK_ROOT=<recursive pinned SDK checkout>`; build `ZPlaneFX` and `zplane_core_tests`, then run `ctest`. CI checks Windows compilation, deterministic DSP and VST3 Validator. Fender Studio Pro / 125A Plugin Tester are separately NOT RUN.
+This branch exposes the actual research filter routines, but the CTest coverage so far exercises the **55 dispatch paths with synthetic bank fixtures**. It does *not* prove sound identity to X3 with original banks.
 
-## Engineering contract
-See `docs/DEVELOPMENT-SCOPE.md`. Product is an audio insert, no MIDI instrument, no sampler, no connection to private copyrighted installers. Full 55-filter fidelity is **NOT IMPLEMENTED**.
+## Windows build
+
+Build Windows x64 with C++23 and pinned Steinberg VST3 SDK `v3.8.1_build_84` (commit `3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96`).
+
+Enable `-DZPLANE_WITH_X3_RESEARCH=ON` to compile the experimental external research backend. A build without this option retains the legacy DSP and the new state format.
+
+[Verified Windows prototype and tests, run 42516823505](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42516823505): **3/3 CTests; 47/47 Steinberg Validator; native packaged host test PASS**. It contains no original banks.
+
+## Compatibility and limitations
+
+The original five parameter IDs remain unchanged. Parameter ID 5 adds X3 selection, and component state v2 reads both v1 (five parameters) and v2 (six parameters). The original four legacy filter controls have no custom GUI yet. The X3 Morph Designer programming controls are not exposed.
+
+**External source licensing is unresolved:** the research repository contains no explicit reuse license, and the original bank data originates from commercial software. Development experiments are not clearance to distribute or sell the borrowed code or data.
+
+No FULL AUDIT, no completed 125A Plugin Test Lab evaluation, no real Fender Studio Pro/ASIO acceptance and no original-bank 55-filter audio comparison have been performed for this development version. See [Development scope](docs/DEVELOPMENT-SCOPE.md).
