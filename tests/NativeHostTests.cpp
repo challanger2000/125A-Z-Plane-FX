@@ -461,6 +461,74 @@ void exerciseX3TimedFilterSwitch(Module& module,
  host.stop();
  std::cout<<"NATIVE HOST PASS: exact sample-offset X3 filter transition at frame 128\\n";
 }
+void exerciseX3LegacyFamilySwitch(Module& module,
+ const emux::FactoryBank& factory,const emux::ExtendedBank& extended) {
+ // Independent combined DSP PCM oracle, not a finite-output smoke.
+ // Exercises both directions within ONE host buffer, preserving sample offsets.
+ constexpr int kFrames=768,kToX3=128,kToLegacy=512,kFade=240;
+ Instance host(module);
+ host.setup(kSample32,48000.,kFrames);
+ ParameterChanges changes;
+ int32 slot=0;
+ auto* filter=changes.addParameterData(5,slot);
+ require(filter!=nullptr,"Family switch filter parameter queue");
+ int32 point=0;
+ require(filter->addPoint(kToX3,1./55.,point)==kResultOk,"Legacy to X3 point");
+ require(filter->addPoint(kToLegacy,0.,point)==kResultOk,"X3 to legacy point");
+ std::array<float,kFrames> il{},ir{},ol{},orr{};
+ for(int n=0;n<kFrames;++n){
+  il[static_cast<std::size_t>(n)]=static_cast<float>(.018*std::sin(n*.071)+.006*std::cos(n*.031));
+  ir[static_cast<std::size_t>(n)]=static_cast<float>(.013*std::cos(n*.093)-.004*std::sin(n*.045));
+ }
+ Sample32* input[]{il.data(),ir.data()},*output[]{ol.data(),orr.data()};
+ AudioBusBuffers in{},out{};
+ in.numChannels=out.numChannels=2;in.channelBuffers32=input;out.channelBuffers32=output;
+ ProcessData data{};
+ data.numSamples=kFrames;data.numInputs=data.numOutputs=1;
+ data.inputs=&in;data.outputs=&out;data.symbolicSampleSize=kSample32;
+ data.processMode=kRealtime;data.inputParameterChanges=&changes;
+ require(host.audio->process(data)==kResultOk,"Native dual-family PCM switch");
+ // Compute legacy from a separate documented biquad state, not the plugin
+ // being verified; X3 follows independent original E-MU research reference.
+ zplane::Settings oldSettings{};
+ oldSettings.frequency=20.*std::pow(1000.,.5);
+ oldSettings.quality=.2*std::pow(100.,.5);
+ zplane::StereoFilter legacy;
+ legacy.configure(48000.,oldSettings);
+ const auto cfg=referenceFor(1,.5f,.5f,48000,factory,extended);
+ emux::Filter x3L(cfg.coefficients,cfg.sections),x3R(cfg.coefficients,cfg.sections);
+ unsigned distinguishable=0;
+ for(int n=0;n<kFrames;++n){
+  float legacyL=0.f,legacyR=0.f;
+  legacy.process(&il[static_cast<std::size_t>(n)],&ir[static_cast<std::size_t>(n)],
+                 &legacyL,&legacyR,1);
+  float researchL=0.f,researchR=0.f;
+  if(n>=kToX3){
+   researchL=x3L.process_sample(il[static_cast<std::size_t>(n)]);
+   researchR=x3R.process_sample(ir[static_cast<std::size_t>(n)]);
+  }
+  double blend=0.;
+  if(n>=kToX3&&n<kToX3+kFade)
+   blend=double(n-kToX3+1)/kFade;
+  else if(n>=kToX3+kFade&&n<kToLegacy)
+   blend=1.;
+  else if(n>=kToLegacy&&n<kToLegacy+kFade)
+   blend=1.-double(n-kToLegacy+1)/kFade;
+  const float wantL=static_cast<float>(double(legacyL)+(double(researchL)-double(legacyL))*blend);
+  const float wantR=static_cast<float>(double(legacyR)+(double(researchR)-double(legacyR))*blend);
+  if(std::fabs(ol[static_cast<std::size_t>(n)]-wantL)>1.e-6f||
+     std::fabs(orr[static_cast<std::size_t>(n)]-wantR)>1.e-6f){
+   std::cerr<<"Family PCM mismatch at "<<n<<" expected "<<wantL
+            <<" observed "<<ol[static_cast<std::size_t>(n)]<<"\\n";
+   require(false,"Legacy/X3 bidirectional 5ms sample-accurate independent PCM oracle");
+  }
+  if(blend>0.&&blend<1.&&std::fabs(researchL-legacyL)>1.e-5f)
+   ++distinguishable;
+ }
+ require(distinguishable>50,"Family-switch oracle must detect hard-switch mutation");
+ host.stop();
+ std::cout<<"NATIVE HOST PASS: exact 5ms Legacy/X3/Legacy crossfades at 128/512\\n";
+}
 void exercisePacedX3(Module& module) {
  // Host-realistic, bounded 256-frame pacing. Measure actual process()
  // call duration separately from scheduler wakeup lag. Do not claim an
@@ -573,6 +641,7 @@ void exerciseX3(Module& module) {
   }
  }
  exerciseX3TimedFilterSwitch(module,factory,extended);
+ exerciseX3LegacyFamilySwitch(module,factory,extended);
  std::cout<<"Native staged VST3 original-bank X3 modes: "<<tested
           <<" stereo 32/64-bit render cases, 55 filters * 4 rates PASS\n";
 }

@@ -44,6 +44,58 @@ class Processor final : public AudioEffect {
 #ifdef ZPLANE_WITH_X3_RESEARCH
  X3ResearchAdapter x3_{};
  bool x3Ready_{false};
+ // Family mixing is independent of the inner X3 filter-to-filter fade.
+ // Retarget from the currently audible blend on arbitrarily dense edits.
+ double familyBlend_{0.},familyTarget_{0.},familyStep_{0.};
+ std::uint32_t familyLeft_{0};
+ bool familyReady_{false};
+ template<typename Sample>
+ void renderFamilies(const Sample* il,const Sample* ir,Sample* ol,Sample* orr,
+                     std::uint32_t frames,bool x3Available) noexcept {
+  if(familyLeft_==0&&familyBlend_<=0.){
+   dsp_.configure(rate_,makeSettings(params_));
+   dsp_.process(il,ir,ol,orr,frames);
+   return;
+  }
+  if(familyLeft_==0&&familyBlend_>=1.){
+   if(x3Available)x3_.process(il,ir,ol,orr,frames,params_[kWet],params_[kBypass]>=0.5);
+   else for(std::uint32_t n=0;n<frames;++n){
+    ol[n]=std::isfinite(static_cast<double>(il[n]))?il[n]:Sample(0);
+    orr[n]=std::isfinite(static_cast<double>(ir[n]))?ir[n]:Sample(0);
+   }
+   return;
+  }
+  dsp_.configure(rate_,makeSettings(params_));
+  // Bounded, fixed stack scratch. 128 frames, two stereo DSP engines;
+  // no callback heap allocations or per-host-block scratch allocation.
+  constexpr std::uint32_t kScratch=128;
+  std::array<Sample,kScratch> legacyL{},legacyR{},x3L{},x3R{};
+  for(std::uint32_t base=0;base<frames;){
+   const auto count=std::min(kScratch,frames-base);
+   dsp_.process(il+base,ir+base,legacyL.data(),legacyR.data(),count);
+   if(x3Available)
+    x3_.process(il+base,ir+base,x3L.data(),x3R.data(),count,
+                params_[kWet],params_[kBypass]>=0.5);
+   else for(std::uint32_t n=0;n<count;++n){
+    x3L[n]=std::isfinite(static_cast<double>(il[base+n]))?il[base+n]:Sample(0);
+    x3R[n]=std::isfinite(static_cast<double>(ir[base+n]))?ir[base+n]:Sample(0);
+   }
+   for(std::uint32_t n=0;n<count;++n){
+    if(familyLeft_){
+     familyBlend_+=familyStep_;
+     if(--familyLeft_==0)familyBlend_=familyTarget_;
+    }
+    const auto a=familyBlend_;
+    ol[base+n]=a<=0.?legacyL[n]:a>=1.?x3L[n]:
+     static_cast<Sample>(static_cast<double>(legacyL[n])+
+       (static_cast<double>(x3L[n])-static_cast<double>(legacyL[n]))*a);
+    orr[base+n]=a<=0.?legacyR[n]:a>=1.?x3R[n]:
+     static_cast<Sample>(static_cast<double>(legacyR[n])+
+       (static_cast<double>(x3R[n])-static_cast<double>(legacyR[n]))*a);
+   }
+   base+=count;
+  }
+ }
 #endif
  AutomationTimeline timeline_{}; // preallocated outside realtime callback
  double rate_{48000.};
@@ -85,6 +137,8 @@ public:
    dsp_.configure(rate_,makeSettings(params_));
 #ifdef ZPLANE_WITH_X3_RESEARCH
    x3_.reset();
+   familyBlend_=familyTarget_=familyStep_=0.;
+   familyLeft_=0;familyReady_=false;
 #endif
   }
   return rc;
@@ -95,6 +149,8 @@ public:
    dsp_.reset();
 #ifdef ZPLANE_WITH_X3_RESEARCH
    x3_.reset();
+   familyBlend_=familyTarget_=familyStep_=0.;
+   familyLeft_=0;familyReady_=false;
 #endif
   }
   return AudioEffect::setActive(active);
@@ -152,38 +208,46 @@ public:
 #ifdef ZPLANE_WITH_X3_RESEARCH
     const auto requested=static_cast<unsigned>(std::min(55.,std::floor(params_[kX3Filter]*55.+0.5)));
     const bool useX3=requested>0;
-    bool renderX3=false;
-    if(useX3&&x3Ready_){
-     // X3 controls are normalized Morph and Q, not conventional Hz/Q.
-     x3_.completeDeferred();
-     renderX3=x3_.set(requested,static_cast<float>(params_[kCutoff]),
-                      static_cast<float>(params_[kQuality]),
-                      static_cast<unsigned>(std::llround(rate_)));
+    if(!familyReady_){
+     familyBlend_=familyTarget_=useX3?1.:0.;
+     familyReady_=true;
+    }else if((useX3?1.:0.)!=familyTarget_){
+     familyTarget_=useX3?1.:0.;
+     familyLeft_=static_cast<std::uint32_t>(std::clamp(rate_*.005,1.,48000.));
+     familyStep_=(familyTarget_-familyBlend_)/static_cast<double>(familyLeft_);
     }
-    if(useX3) {
-      if(data.symbolicSampleSize==kSample32) {
-       auto* il=in.channelBuffers32[0]+cursor,*ir=in.channelBuffers32[1]+cursor;
-       auto* ol=out.channelBuffers32[0]+cursor,*orr=out.channelBuffers32[1]+cursor;
-       if(renderX3)x3_.process(il,ir,ol,orr,length,params_[kWet],params_[kBypass]>=0.5);
-       else for(unsigned i=0;i<length;++i){ol[i]=std::isfinite(il[i])?il[i]:0.f;orr[i]=std::isfinite(ir[i])?ir[i]:0.f;}
-      }else {
-       auto* il=in.channelBuffers64[0]+cursor,*ir=in.channelBuffers64[1]+cursor;
-       auto* ol=out.channelBuffers64[0]+cursor,*orr=out.channelBuffers64[1]+cursor;
-       if(renderX3)x3_.process(il,ir,ol,orr,length,params_[kWet],params_[kBypass]>=0.5);
-       else for(unsigned i=0;i<length;++i){ol[i]=std::isfinite(il[i])?il[i]:0.;orr[i]=std::isfinite(ir[i])?ir[i]:0.;}
-      }
-    }else
-#endif
-    {
-     dsp_.configure(rate_,makeSettings(params_));
-     if(data.symbolicSampleSize==kSample32){
-      dsp_.process(in.channelBuffers32[0]+cursor,in.channelBuffers32[1]+cursor,
-                   out.channelBuffers32[0]+cursor,out.channelBuffers32[1]+cursor,length);
+    bool renderX3=false;
+    const bool x3Audible=useX3||familyBlend_>0.||familyLeft_>0;
+    if(x3Audible&&x3Ready_){
+     x3_.completeDeferred();
+     if(useX3){
+      // Morph and Q, not legacy cutoff/resonance units.
+      renderX3=x3_.set(requested,static_cast<float>(params_[kCutoff]),
+                        static_cast<float>(params_[kQuality]),
+                        static_cast<unsigned>(std::llround(rate_)));
      }else{
-      dsp_.process(in.channelBuffers64[0]+cursor,in.channelBuffers64[1]+cursor,
-                   out.channelBuffers64[0]+cursor,out.channelBuffers64[1]+cursor,length);
+      // Continue the outgoing X3 filter until the family fade ends.
+      renderX3=x3_.hasBanks();
      }
     }
+    if(data.symbolicSampleSize==kSample32)
+     renderFamilies(in.channelBuffers32[0]+cursor,in.channelBuffers32[1]+cursor,
+                    out.channelBuffers32[0]+cursor,out.channelBuffers32[1]+cursor,
+                    length,renderX3);
+    else
+     renderFamilies(in.channelBuffers64[0]+cursor,in.channelBuffers64[1]+cursor,
+                    out.channelBuffers64[0]+cursor,out.channelBuffers64[1]+cursor,
+                    length,renderX3);
+#else
+    dsp_.configure(rate_,makeSettings(params_));
+    if(data.symbolicSampleSize==kSample32){
+     dsp_.process(in.channelBuffers32[0]+cursor,in.channelBuffers32[1]+cursor,
+                  out.channelBuffers32[0]+cursor,out.channelBuffers32[1]+cursor,length);
+    }else{
+     dsp_.process(in.channelBuffers64[0]+cursor,in.channelBuffers64[1]+cursor,
+                  out.channelBuffers64[0]+cursor,out.channelBuffers64[1]+cursor,length);
+    }
+#endif
     cursor=next;
   }
   // An event at offset n defines the state for the following callback.
@@ -205,7 +269,13 @@ public:
   auto candidate=params_;
   for(std::size_t i=0;i<(version==1?5u:6u);++i){auto& p=candidate[i];if(!st.readDouble(p)||!std::isfinite(p)||p<0.||p>1.)return kResultFalse;}
   if(version==1)candidate[kX3Filter]=0.;
-  params_=candidate;dsp_.configure(rate_,makeSettings(params_));return kResultOk;
+  params_=candidate;dsp_.configure(rate_,makeSettings(params_));
+#ifdef ZPLANE_WITH_X3_RESEARCH
+  x3_.reset();
+  familyBlend_=familyTarget_=familyStep_=0.;
+  familyLeft_=0;familyReady_=false;
+#endif
+  return kResultOk;
  }
 };
 class Controller final : public EditController, public VSTGUI::VST3EditorDelegate {
