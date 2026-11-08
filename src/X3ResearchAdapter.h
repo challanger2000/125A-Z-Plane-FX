@@ -113,12 +113,10 @@ public:
   if(!initialized_||!inL||!inR||!outL||!outR)return;
   const double amount=bypass?0.:std::clamp(wet,0.,1.);
   for(std::uint32_t i=0;i<frames;++i){
-   if(left_==0&&queued_){
-    const auto request=pending_;queued_=false;
-    // Defer coefficient preparation until the next control/host block:
-    // no exception-producing bank operations in per-sample loop.
-    pending_=request;
-   }
+   // A completed crossfade must NOT clear queued_ here: the next
+   // completeDeferred() at a host block boundary still needs to apply
+   // the latest automation request. In the old version, the last
+   // request was silently lost if a fade ended mid-block.
    const float a=std::isfinite(static_cast<double>(inL[i]))?static_cast<float>(inL[i]):0.f;
    const float b=std::isfinite(static_cast<double>(inR[i]))?static_cast<float>(inR[i]):0.f;
    const float pa=primaryL_.process_sample(a),pb=primaryR_.process_sample(b);
