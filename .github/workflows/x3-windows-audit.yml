@@ -1,0 +1,82 @@
+name: X3 original installer Windows examination
+on:
+  push:
+    paths:
+      - '.github/workflows/x3-windows-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect-original-x3:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Fetch current 125A Test Lab
+        uses: actions/checkout@v4
+        with:
+          repository: challanger2000/125A-Plugin-Test-Lab
+          ref: bc839e345bfc5657f9196f7db8d6945584e1bec7
+          path: lab
+          persist-credentials: false
+      - name: Download privately uploaded original installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'x3') -Force | Out-Null
+          gh release download x3-test -R challanger2000/Freies-Repro -p 'Setup.Emulator.X3.x64.v3.0.0.exe' -D (Join-Path $env:RUNNER_TEMP 'x3')
+          if ($LASTEXITCODE -ne 0) { throw 'Private release download failed' }
+          $file = Join-Path $env:RUNNER_TEMP 'x3/Setup.Emulator.X3.x64.v3.0.0.exe'
+          $expected='639fdfe7d6e423853bce98471aa0c3e5af512ebd66553c47425c1cae66a59b1a'
+          if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ine $expected) { throw 'Original X3 SHA256 mismatch' }
+          Write-Output 'X3 original uploaded file: checksum verified'
+      - name: Run original X3 installer in disposable Windows and inventory files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = Join-Path $env:RUNNER_TEMP 'x3'
+          $installer = Join-Path $target 'Setup.Emulator.X3.x64.v3.0.0.exe'
+          $installDir = 'C:\x3audit\EmulatorX3'
+          $report = Join-Path $target 'report'
+          $arguments = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR="C:\x3audit\EmulatorX3"'
+          & powershell -NoProfile -File 'lab/tests/Invoke-InstallerInventory.ps1' -Installer $installer -ExpectedSha256 '639fdfe7d6e423853bce98471aa0c3e5af512ebd66553c47425c1cae66a59b1a' -OutputFolder $report -ApproveExecution -TimeoutSeconds 240 -InstallerArguments $arguments -InventoryRoots @($installDir,'C:\Program Files\Creative Professional','C:\Program Files (x86)\Creative Professional')
+          $code = $LASTEXITCODE
+          if (Test-Path (Join-Path $report 'INSTALLER-INVENTORY.json')) {
+            $data=Get-Content (Join-Path $report 'INSTALLER-INVENTORY.json') -Raw | ConvertFrom-Json
+            Write-Output ('X3 installation stage: '+$data.status+'; exit='+$data.exit_code+'; error='+$data.error)
+          }
+          if ($code -ne 0) { Write-Warning 'Installer returned failure; scanning possible payload anyway' }
+      - name: Identify installed EmulatorX.exe and filter libraries
+        if: always()
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'x3'
+          $report = Join-Path $target 'report'
+          New-Item -ItemType Directory -Path $report -Force | Out-Null
+          $found = @()
+          foreach ($dir in @('C:\x3audit','C:\Program Files\Creative Professional','C:\Program Files (x86)\Creative Professional','C:\Program Files\E-MU','C:\Program Files (x86)\E-MU')) {
+            if (Test-Path $dir) {
+              $found += @(Get-ChildItem -LiteralPath $dir -Recurse -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)EmulatorX|Emu|ZPlane|filter|\.dll$' } | ForEach-Object {
+                [ordered]@{name=$_.Name;size=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant();relative_path=$_.FullName}
+              })
+            }
+          }
+          $expectedNative='6f342c6057a8a0fb69f021a0da46adbab7f5a332139a2ee3a9506c9fa84e6914'
+          $exes=@($found | Where-Object {$_.name -ieq 'EmulatorX.exe'})
+          $out=[ordered]@{status= $(if($exes.Count -gt 0){'EMULATORX_EXE_FOUND'}else{'EMULATORX_EXE_NOT_FOUND'});exe_matches_research_expected_hash=@($exes | Where-Object {$_.sha256 -eq $expectedNative}).Count -gt 0;expected_research_hash=$expectedNative;files=@($found);installed_program_present=($exes.Count -gt 0)}
+          $out | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $report 'X3-FILES.json') -Encoding UTF8
+          Write-Output ('X3 file identification: '+$out.status+'; matching expected research executable='+$out.exe_matches_research_expected_hash)
+      - name: Delete proprietary installer from temporary workspace
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'x3/Setup.Emulator.X3.x64.v3.0.0.exe') -Force -ErrorAction SilentlyContinue
+      - name: Store inventory reports privately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: X3-original-Windows-installation-inventory
+          path: ${{ runner.temp }}/x3/report/*.json
+          if-no-files-found: warn
+          retention-days: 2
