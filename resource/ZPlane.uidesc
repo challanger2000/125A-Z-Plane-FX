@@ -1,0 +1,261 @@
+{
+  "vstgui-ui-description": {
+    "version": "1",
+    "variables": {},
+    "bitmaps": {},
+    "fonts": {},
+    "colors": {
+      "Panel": "#1A2029FF",
+      "PanelDark": "#111720FF",
+      "Border": "#3B4855FF",
+      "Accent": "#D3A866FF",
+      "Text": "#E6E9EEFF",
+      "Muted": "#8F9BA8FF",
+      "Control": "#252E3BFF"
+    },
+    "control-tags": {
+      "LegacyMode": "0",
+      "Morph": "1",
+      "Resonance": "2",
+      "Wet": "3",
+      "Bypass": "4",
+      "X3Filter": "5"
+    },
+    "templates": {
+      "ZPlaneMain": {
+        "attributes": {
+          "class": "CViewContainer",
+          "origin": "0, 0",
+          "size": "900, 470",
+          "minSize": "900, 470",
+          "maxSize": "900, 470",
+          "background-color": "PanelDark",
+          "transparent": "false",
+          "mouse-enabled": "true"
+        },
+        "children": {
+          "Header": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "32, 18",
+              "size": "550, 42",
+              "title": "125A  Z-PLANE FX",
+              "font-color": "Accent",
+              "font": "~ NormalFontBig",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "Descriptor": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 61",
+              "size": "800, 24",
+              "title": "E-MU Emulator X3 filter research  |  Windows VST3 development",
+              "font-color": "Muted",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "FilterLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 117",
+              "size": "430, 30",
+              "title": "Z-PLANE FILTER",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "FilterSelector": {
+            "attributes": {
+              "class": "COptionMenu",
+              "origin": "34, 151",
+              "size": "832, 48",
+              "control-tag": "X3Filter",
+              "back-color": "Control",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "frame-color": "Border",
+              "frame-width": "1",
+              "text-alignment": "left",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "MorphLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 230",
+              "size": "270, 26",
+              "title": "MORPH",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "MorphSlider": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "34, 266",
+              "size": "390, 24",
+              "control-tag": "Morph",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "QLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "473, 230",
+              "size": "270, 26",
+              "title": "RESONANCE / Q",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "QSlider": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "473, 266",
+              "size": "391, 24",
+              "control-tag": "Resonance",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "WetLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 322",
+              "size": "270, 26",
+              "title": "DRY / WET",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "WetSlider": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "34, 357",
+              "size": "390, 24",
+              "control-tag": "Wet",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "Bypass": {
+            "attributes": {
+              "class": "CCheckBox",
+              "control-tag": "Bypass",
+              "origin": "475, 348",
+              "size": "190, 45",
+              "title": "BYPASS",
+              "font": "~ NormalFont",
+              "font-color": "Text",
+              "checkmark-color": "Accent",
+              "boxfill-color": "Control",
+              "boxframe-color": "Border",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LegacyLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 415",
+              "size": "200, 24",
+              "title": "LEGACY FILTER",
+              "font-color": "Muted",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LegacySelector": {
+            "attributes": {
+              "class": "COptionMenu",
+              "origin": "196, 410",
+              "size": "230, 34",
+              "control-tag": "LegacyMode",
+              "back-color": "Control",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "frame-color": "Border",
+              "frame-width": "1",
+              "text-alignment": "left",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "StatusNote": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "480, 415",
+              "size": "400, 30",
+              "title": "X3 filter banks required for audio processing",
+              "font-color": "Muted",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          }
+        }
+      }
+    }
+  }
+}
