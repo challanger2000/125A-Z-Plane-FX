@@ -574,6 +574,105 @@ void exerciseX3LegacyFamilySwitch(Module& module,
  host.stop();
  std::cout<<"NATIVE HOST PASS: exact 5ms Legacy/X3/Legacy crossfades at 128/512\\n";
 }
+void exerciseX3RapidFamilyRetarget(Module& module,
+ const emux::FactoryBank& factory,const emux::ExtendedBank& extended) {
+ // Rapid reversals of a 240-frame family fade, with independent per-sample
+ // DSP/envelope oracle and variable host block partition boundaries.
+ constexpr int kFrames=1024,kFade=240;
+ const std::array<std::pair<int,double>,7> edits{{
+  {128,1./55.},{190,0.},{224,1./55.},{260,0.},
+  {315,1./55.},{600,0.},{700,1./55.}
+ }};
+ std::array<float,kFrames> inL{},inR{},wholeL{},wholeR{},partL{},partR{};
+ for(int n=0;n<kFrames;++n){
+  inL[static_cast<std::size_t>(n)]=static_cast<float>(.02*std::sin(n*.061)+.007*std::cos(n*.017));
+  inR[static_cast<std::size_t>(n)]=static_cast<float>(.014*std::cos(n*.083)-.005*std::sin(n*.029));
+ }
+ auto render=[&](Instance& host,int base,int end,
+                 std::array<float,kFrames>& outL,std::array<float,kFrames>& outR){
+  ParameterChanges automation;
+  int32 slot=0;
+  auto* queue=automation.addParameterData(5,slot);
+  require(queue!=nullptr,"Rapid family filter queue");
+  for(const auto& [sample,value]:edits)
+   if(sample>=base&&sample<end){
+    int32 idx=0;
+    require(queue->addPoint(sample-base,value,idx)==kResultOk,
+            "Rapid family sample-offset host automation");
+   }
+  Sample32* in[]{inL.data()+base,inR.data()+base};
+  Sample32* out[]{outL.data()+base,outR.data()+base};
+  AudioBusBuffers input{},output{};
+  input.numChannels=output.numChannels=2;
+  input.channelBuffers32=in;output.channelBuffers32=out;
+  ProcessData data{};
+  data.numSamples=end-base;data.numInputs=data.numOutputs=1;
+  data.inputs=&input;data.outputs=&output;
+  data.symbolicSampleSize=kSample32;data.processMode=kRealtime;
+  data.inputParameterChanges=&automation;
+  require(host.audio->process(data)==kResultOk,"Rapid family process callback");
+ };
+ Instance whole(module),partitioned(module);
+ whole.setup(kSample32,48000.,kFrames);
+ partitioned.setup(kSample32,48000.,kFrames);
+ render(whole,0,kFrames,wholeL,wholeR);
+ constexpr std::array<int,10> boundaries{{0,137,196,237,319,499,600,711,833,1024}};
+ for(std::size_t b=1;b<boundaries.size();++b)
+  render(partitioned,boundaries[b-1],boundaries[b],partL,partR);
+ zplane::Settings settings{};
+ settings.frequency=20.*std::pow(1000.,.5);
+ settings.quality=.2*std::pow(100.,.5);
+ zplane::StereoFilter legacy;
+ legacy.configure(48000.,settings);
+ const auto cfg=referenceFor(1,.5f,.5f,48000,factory,extended);
+ emux::Filter researchL(cfg.coefficients,cfg.sections),
+              researchR(cfg.coefficients,cfg.sections);
+ double blend=0.,target=0.,increment=0.;
+ unsigned fadeLeft=0,significant=0;
+ bool researchInitialized=false;
+ std::size_t nextEdit=0;
+ for(int n=0;n<kFrames;++n){
+  if(nextEdit<edits.size()&&edits[nextEdit].first==n){
+   target=edits[nextEdit].second>0.?1.:0.;
+   if(target==1.)researchInitialized=true;
+   fadeLeft=kFade;
+   increment=(target-blend)/double(kFade);
+   ++nextEdit;
+  }
+  const auto index=static_cast<std::size_t>(n);
+  float a=0.f,b=0.f,c=0.f,d=0.f;
+  const bool activeTransition=fadeLeft>0;
+  // Exactly one owner engine advances at an endpoint. Both advance
+  // exclusively while an in-flight transition samples them.
+  if(activeTransition||blend<=0.)
+   legacy.process(&inL[index],&inR[index],&a,&b,1);
+  if(researchInitialized&&(activeTransition||blend>0.)){
+   c=researchL.process_sample(inL[index]);
+   d=researchR.process_sample(inR[index]);
+  }
+  if(fadeLeft){
+   blend+=increment;
+   if(--fadeLeft==0)blend=target;
+  }
+  const float predictedL=static_cast<float>(double(a)+(double(c)-double(a))*blend);
+  const float predictedR=static_cast<float>(double(b)+(double(d)-double(b))*blend);
+  if(std::fabs(wholeL[index]-predictedL)>1.e-6f||
+     std::fabs(wholeR[index]-predictedR)>1.e-6f){
+   std::cerr<<"Rapid family independent PCM mismatch at sample "<<n
+            <<" actual "<<wholeL[index]<<" expected "<<predictedL<<"\\n";
+   require(false,"Rapid retarget state must match independent DSP/envelope oracle");
+  }
+  if(wholeL[index]!=partL[index]||wholeR[index]!=partR[index]){
+   std::cerr<<"Rapid family host partition mismatch at sample "<<n
+            <<" whole "<<wholeL[index]<<" split "<<partL[index]<<"\\n";
+   require(false,"Rapid family retarget is host block-partition invariant");
+  }
+  if(activeTransition&&std::fabs(a-c)>1.e-5f)++significant;
+ }
+ require(significant>100,"Rapid family oracle must distinguish real DSP paths");
+ partitioned.stop();whole.stop();
+ std::cout<<"NATIVE HOST PASS: seven rapid family edits, independent PCM and block partition\\n";
+}
 void exercisePacedX3(Module& module) {
  // Host-realistic, bounded 256-frame pacing. Measure actual process()
  // call duration separately from scheduler wakeup lag. Do not claim an
@@ -687,6 +786,7 @@ void exerciseX3(Module& module) {
  }
  exerciseX3TimedFilterSwitch(module,factory,extended);
  exerciseX3LegacyFamilySwitch(module,factory,extended);
+ exerciseX3RapidFamilyRetarget(module,factory,extended);
  std::cout<<"Native staged VST3 original-bank X3 modes: "<<tested
           <<" stereo 32/64-bit render cases, 55 filters * 4 rates PASS\n";
 }
