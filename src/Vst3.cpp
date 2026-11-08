@@ -29,6 +29,7 @@ static Settings makeSettings(const std::array<double,5>& p) noexcept {
 class Processor final : public AudioEffect {
  std::array<double,5> params_{defaults}; // processor/audio owner: host process and control methods follow SDK lifecycle
  StereoFilter dsp_;
+ AutomationTimeline timeline_{}; // preallocated outside realtime callback
  double rate_{48000.};
 public:
  Processor(){setControllerClass(kController);}
@@ -61,7 +62,8 @@ public:
   if(data.numSamples<0||data.numInputs<0||data.numOutputs<0)return kInvalidArgument;
   // Host automation is time-stamped. Never collapse a queue to its last
   // event before rendering the entire block.
-  AutomationTimeline timeline;
+  auto& timeline=timeline_;
+  timeline.clear();
   if(data.inputParameterChanges){
     const int32 count=data.inputParameterChanges->getParameterCount();
     for(int32 i=0;i<count;++i) {
