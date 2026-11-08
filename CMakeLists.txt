@@ -31,7 +31,7 @@ if(ZPLANE_BUILD_VST3)
  endif()
  set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF CACHE BOOL "" FORCE)
  set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES OFF CACHE BOOL "" FORCE)
- set(SMTG_ENABLE_VSTGUI_SUPPORT OFF CACHE BOOL "" FORCE)
+ set(SMTG_ENABLE_VSTGUI_SUPPORT ON CACHE BOOL "" FORCE)
  set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
  set(SMTG_RUN_VST_VALIDATOR OFF CACHE BOOL "" FORCE)
  set(SMTG_CREATE_MODULE_INFO OFF CACHE BOOL "" FORCE)
@@ -39,8 +39,9 @@ if(ZPLANE_BUILD_VST3)
  file(TO_CMAKE_PATH "${VST3_SDK_ROOT}" _ZPlaneSdkRoot)
  smtg_add_vst3plugin(ZPlaneFX
   "${_ZPlaneSdkRoot}/public.sdk/source/main/dllmain.cpp"
-  src/Vst3.cpp)
- target_link_libraries(ZPlaneFX PRIVATE sdk zplane_core)
+  src/Vst3.cpp
+  resource/ZPlane.uidesc)
+ target_link_libraries(ZPlaneFX PRIVATE sdk zplane_core vstgui_support)
  if(ZPLANE_WITH_X3_RESEARCH)
   set(_research_zip "${CMAKE_BINARY_DIR}/x3-research.zip")
   file(DOWNLOAD
