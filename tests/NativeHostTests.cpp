@@ -677,6 +677,95 @@ void exerciseX3RapidFamilyRetarget(Module& module,
  partitioned.stop();whole.stop();
  std::cout<<"NATIVE HOST PASS: seven rapid family edits, independent PCM and block partition\\n";
 }
+template<typename Sample>
+void exerciseX3FamilyWetBypass(Module& module,int32 format,unsigned rate) {
+ // A metamorphic native-EXE oracle for 32-/64-bit cross-family PCM under
+ // simultaneous X3↔Legacy, Wet and Bypass automation at four host rates.
+ constexpr int kFrames=5120;
+ struct Edit {ParamID id;int offset;double value;};
+ constexpr std::array<Edit,7> edits{{
+  {3,0,0.},{5,512,1./55.},{3,1280,1.},{5,2500,0.},
+  {3,3000,0.},{4,3150,1.},{5,4000,1./55.}
+ }};
+ std::array<Sample,kFrames> inL{},inR{},wholeL{},wholeR{},splitL{},splitR{};
+ for(int n=0;n<kFrames;++n){
+  const auto i=static_cast<std::size_t>(n);
+  inL[i]=static_cast<Sample>(.15*std::sin(n*.057)+.029*std::cos(n*.017)+1.e-12);
+  inR[i]=static_cast<Sample>(.11*std::cos(n*.073)-.018*std::sin(n*.031)-2.e-12);
+ }
+ auto render=[&](Instance& host,int begin,int end,
+                 std::array<Sample,kFrames>& left,
+                 std::array<Sample,kFrames>& right){
+  ParameterChanges changes;
+  for(const auto id:std::array<ParamID,3>{{3,4,5}}){
+   int32 slot=0;
+   auto* q=changes.addParameterData(id,slot);
+   require(q!=nullptr,"Cross-family multi-rate parameter queue");
+   for(const auto& edit:edits) {
+    if(edit.id==id&&edit.offset>=begin&&edit.offset<end){
+     int32 point=0;
+     require(q->addPoint(edit.offset-begin,edit.value,point)==kResultOk,
+             "Cross-family multi-rate valid sample-offset edit");
+    }
+   }
+  }
+  Sample* source[]{inL.data()+begin,inR.data()+begin};
+  Sample* target[]{left.data()+begin,right.data()+begin};
+  AudioBusBuffers input{},output{};
+  input.numChannels=output.numChannels=2;
+  if(format==kSample32){
+   input.channelBuffers32=reinterpret_cast<Sample32**>(source);
+   output.channelBuffers32=reinterpret_cast<Sample32**>(target);
+  }else{
+   input.channelBuffers64=reinterpret_cast<Sample64**>(source);
+   output.channelBuffers64=reinterpret_cast<Sample64**>(target);
+  }
+  ProcessData data{};
+  data.numSamples=end-begin;data.numInputs=data.numOutputs=1;
+  data.inputs=&input;data.outputs=&output;data.symbolicSampleSize=format;
+  data.processMode=kRealtime;data.inputParameterChanges=&changes;
+  require(host.audio->process(data)==kResultOk,
+          "Cross-family multi-rate hosted process");
+ };
+ Instance whole(module),partitioned(module);
+ whole.setup(format,rate,kFrames);partitioned.setup(format,rate,kFrames);
+ render(whole,0,kFrames,wholeL,wholeR);
+ constexpr std::array<int,16> boundaries{{
+  0,1,117,501,513,801,1279,1500,2297,2501,
+  2999,3151,3479,4001,4711,kFrames
+ }};
+ for(std::size_t b=1;b<boundaries.size();++b)
+  render(partitioned,boundaries[b-1],boundaries[b],splitL,splitR);
+ unsigned activeSamples=0;
+ for(int n=0;n<kFrames;++n){
+  const auto i=static_cast<std::size_t>(n);
+  if(!std::isfinite(static_cast<double>(wholeL[i]))||
+     !std::isfinite(static_cast<double>(wholeR[i])))
+   require(false,"Cross-family Wet/Bypass PCM must remain finite");
+  if(wholeL[i]!=splitL[i]||wholeR[i]!=splitR[i]){
+   std::cerr<<"Multirate family split mismatch sample="<<n
+            <<" rate="<<rate<<" bits="<<(format==kSample32?32:64)
+            <<" left whole="<<wholeL[i]<<" split="<<splitL[i]<<"\\n";
+   require(false,"All filter/Wet/Bypass events are block-partition invariant");
+  }
+  // After the initial 5-ms Wet=0 ramp at the highest supported rate,
+  // and before Wet rises at sample 1280, both active engines must be dry.
+  // From sample 5000 all family and bypass ramps have ended.
+  if((n>=1100&&n<1280)||n>=5000)
+   require(wholeL[i]==inL[i]&&wholeR[i]==inR[i],
+           "Cross-family Dry/Wet/Bypass must preserve exact original PCM");
+  if(n>=2050&&n<2300&&
+      (std::fabs(static_cast<double>(wholeL[i])-static_cast<double>(inL[i]))>1.e-5||
+       std::fabs(static_cast<double>(wholeR[i])-static_cast<double>(inR[i]))>1.e-5))
+   ++activeSamples;
+ }
+ require(activeSamples>100,
+         "Positive control: cross-family host audio must react audibly to Wet=1");
+ partitioned.stop();whole.stop();
+ std::cout<<"NATIVE HOST PASS: family Wet/Bypass interleaving "
+          <<(format==kSample32?32:64)<<"-bit "<<rate<<" Hz, "
+          <<"exact dry PCM and irregular host block partitions\\n";
+}
 void exercisePacedX3(Module& module) {
  // Host-realistic, bounded 256-frame pacing. Measure actual process()
  // call duration separately from scheduler wakeup lag. Do not claim an
@@ -791,6 +880,10 @@ void exerciseX3(Module& module) {
  exerciseX3TimedFilterSwitch(module,factory,extended);
  exerciseX3LegacyFamilySwitch(module,factory,extended);
  exerciseX3RapidFamilyRetarget(module,factory,extended);
+ for(unsigned rate:{44100u,48000u,96000u,192000u}){
+  exerciseX3FamilyWetBypass<float>(module,kSample32,rate);
+  exerciseX3FamilyWetBypass<double>(module,kSample64,rate);
+ }
  std::cout<<"Native staged VST3 original-bank X3 modes: "<<tested
           <<" stereo 32/64-bit render cases, 55 filters * 4 rates PASS\n";
 }
