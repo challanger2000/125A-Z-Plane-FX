@@ -48,3 +48,11 @@ Prototype does not emulate X3 filter types, native coefficient tables, morph des
 - With a missing bank or an unsupported sample rate, an X3 selection returns neutral dry audio rather than inventing a substitute filter. The prior four standard filters remain available under the first "Legacy Standard Filter" entry.
 - X3 frequency control maps to original normalized Morph, and resonance to normalized Q, not Hz and classic biquad Q. Five programmable modes currently have example programming configurations, not yet an editable Morph Designer.
 - A **research dependency without an explicit redistribution license** is not a commercial release dependency. The prototype is evaluation-only and must not be advertised or sold until permission/provenance is resolved.
+
+## Windows X3 adapter development verification — 2026-11-08 19:49 UTC
+
+- Last tested code commit: `665cef01b71a1277e229f327f6a8d694a3168304`.
+- [Windows Actions 42516823505](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42516823505) SUCCESS: CTest **3/3**, Steinberg VST3 Validator **47/47**, actual packaged VST3 native host smoke PASS (stereo float/double, sample-offset bypass, state recall and rejected truncated state).
+- The new `zplane_x3_adapter_tests` exercises all **55 external research paths** with generated zero-bank fixtures, including rejection of invalid filter indexes and unsupported sample rates. This confirms code-path integration; it does **not** establish that real original extracted banks have been exercised or their audio matches Emulator X3.
+- The previous Validator failures (45/47) were traced to the controller rejecting newly introduced state version 2; fixed and confirmed in the exact final successful run above.
+- Future critical tests: independent original-bank PCM comparisons of all 55 modes; controllable programmable filter parameters; click-free transitions between legacy and X3 modes; worst-case callback runtime, bounded exception-free scheduling; actual bank presence/error UI; Windows 125A Test Lab and DAW. All remain NOT VERIFIED.
