@@ -219,7 +219,7 @@ public:
    if(!GetModuleHandleExW(
       GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
       reinterpret_cast<LPCWSTR>(&Controller::createInstance),&module)||!module)return {};
-   std::wstring dllPath(32768,L'\\0');
+   std::wstring dllPath(32768,L'\0');
    const auto size=GetModuleFileNameW(module,dllPath.data(),
                                       static_cast<DWORD>(dllPath.size()));
    if(size==0||size>=dllPath.size())return {};
@@ -231,7 +231,7 @@ public:
    const auto needed=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
                    path.c_str(),static_cast<int>(path.size()),nullptr,0,nullptr,nullptr);
    if(needed<=0)return {};
-   std::string utf8(static_cast<std::size_t>(needed),'\\0');
+   std::string utf8(static_cast<std::size_t>(needed),'\0');
    if(WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
       path.c_str(),static_cast<int>(path.size()),utf8.data(),needed,nullptr,nullptr)!=needed)return {};
    return utf8;
