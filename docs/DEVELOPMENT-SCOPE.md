@@ -84,3 +84,13 @@ The stand-alone reconstruction tool at `tools/reconstruct_x3_banks.py` verifies 
 - **6/6 CTests PASS**, official Steinberg Validator **47/47 PASS** and native packaged host suite PASS.
 - A Win32 `min/max` header collision caused an initial red MSVC run; the test header now defines `NOMINMAX` before including `windows.h`. The subsequent exact build passed.
 - No in-host high-density filter automation stress, morph timing characterization, 125A universal test-lab audit, real owner DAW/ASIO, or finished VSTGUI. All remain NOT VERIFIED. This evidence does not justify a FINAL release.
+
+## Functional native VSTGUI introduction — 2026-11-08 21:03 UTC
+
+- Tested source commit `602d0acf89d5bf1503d9739689705a06e902b6b1`.
+- [Windows Actions run 42523015491](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42523015491): SUCCESS.
+- Included the first asset-free dark VSTGUI template at `resource/ZPlane.uidesc`, named `ZPlaneMain`, 900×470 px, with filter selection, Morph, Resonance/Q, Dry/Wet, Bypass and legacy mode.
+- The UI is embedded as a Win32 `DATA` resource in the plugin DLL and additionally shipped under `Contents/Resources`. The controller resolves the UI resource against the plugin module (not the DAW working directory).
+- Actual staged plugin native-host test confirms `IEditController::createView(kEditor)` returns an editor and `IPlugView::getSize` reports the intended dimensions. This test does NOT yet confirm interactive drawing, all-control parameter edits, resizing, faceplate art or accessibility. Those are separate mandatory GUI release gates.
+- The same exact run passed six native CTests, 47/47 Steinberg Validator checks, and 440 native PCM comparisons for 55 original X3 filter modes × four rates × both sample precisions.
+- Other known incomplete areas remain full test-lab audit, owner DAW/ASIO acceptance, programmable filter editing, deep realtime automation stress, original-code licensing; **NO FINAL RELEASE**.
