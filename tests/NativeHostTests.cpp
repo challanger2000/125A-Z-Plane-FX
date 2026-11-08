@@ -409,6 +409,97 @@ void exerciseNativeGUIEdits(Module& module) {
  std::cout<<"NATIVE GUI HOST PASS: Morph/Q/Wet drags, Ctrl-default reset, "
           <<"Bypass on/off, host edit lifecycle and processor project recall\\n";
 }
+
+void nativeGuiKey(HWND canvas,WPARAM key) {
+ // The platform's HWND keyboard event path, not a direct parameter write.
+ SendMessageW(canvas,WM_KEYDOWN,key,1);
+ SendMessageW(canvas,WM_KEYUP,key,0xC0000001L);
+ nativeGuiPump();
+}
+void exerciseNativeGUIOptionMenus(Module& module) {
+ // Real HWND keyboard focus -> VSTGUI COptionMenu -> Controller edit ->
+ // IComponentHandler -> the loaded VST3 processor -> persisted state.
+ // Select "Down" on each focusable control in native Tab traversal.
+ // Unlike directly calling setParamNormalized(), this fails if the menu
+ // is not reachable, has the wrong parameter binding, or sends no host edit.
+ Instance inst(module);
+ inst.setup(kSample32,48000.,512);
+ auto* bridge=new NativeGUIEditBridge(inst.audio);
+ require(inst.controller->setComponentHandler(bridge)==kResultOk,
+         "Option-menu native host component handler");
+ HWND parent=CreateWindowExW(0,L"STATIC",L"Z-Plane native option menu QA",
+        WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+        20,20,940,540,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+ require(parent!=nullptr,"Option-menu native parent HWND");
+ ShowWindow(parent,SW_SHOWNA);UpdateWindow(parent);
+ auto* view=inst.controller->createView(ViewType::kEditor);
+ require(view!=nullptr,"Option-menu native editor creation");
+ require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
+         "Option-menu native editor attachment");
+ ViewRect rect{0,0,900,470};
+ require(view->onSize(&rect)==kResultOk,
+         "Option-menu native editor 900x470 onSize");
+ nativeGuiPump();
+ HWND canvas=GetWindow(parent,GW_CHILD);
+ require(canvas!=nullptr,"VSTGUI child HWND for option-menu key events");
+ require(inst.controller->setParamNormalized(0,0.)==kResultTrue,
+         "Seed Legacy filter selection at index 0");
+ require(inst.controller->setParamNormalized(5,0.)==kResultTrue,
+         "Seed X3 filter selection at Legacy index 0");
+ nativeGuiPump();
+ SetFocus(canvas);
+ bool legacySelected=false,x3Selected=false;
+ for(int tab=0;tab<20&&!(legacySelected&&x3Selected);++tab) {
+  nativeGuiKey(canvas,VK_TAB);
+  const auto legacyEdits=bridge->updates[0];
+  const auto x3Edits=bridge->updates[5];
+  nativeGuiKey(canvas,VK_DOWN);
+  if(bridge->updates[0]>legacyEdits) {
+   const auto actual=inst.controller->getParamNormalized(0);
+   require(std::isfinite(actual)&&actual>0.&&actual<=1.,
+           "Native Legacy menu Down must select a valid nonzero option");
+   legacySelected=true;
+  }
+  if(bridge->updates[5]>x3Edits) {
+   const auto actual=inst.controller->getParamNormalized(5);
+   require(std::isfinite(actual)&&actual>0.&&actual<=1.,
+           "Native X3 menu Down must select a valid nonzero option");
+   x3Selected=true;
+  }
+ }
+ if(!legacySelected||!x3Selected)
+  std::cerr<<"Native option-menu keyboard FAIL: Legacy="<<legacySelected
+           <<" X3="<<x3Selected
+           <<" legacy edits="<<bridge->updates[0]
+           <<" X3 edits="<<bridge->updates[5]<<"\\n";
+ require(legacySelected&&x3Selected,
+         "Tab focus + Down must operate both real VSTGUI COptionMenus");
+ require(bridge->starts[0]==bridge->ends[0]&&bridge->starts[0]>0,
+         "Legacy COptionMenu host begin/end edit balanced");
+ require(bridge->starts[5]==bridge->ends[5]&&bridge->starts[5]>0,
+         "X3 COptionMenu host begin/end edit balanced");
+ Steinberg::ResizableMemoryIBStream state;
+ require(inst.component->getState(&state)==kResultOk,
+         "Both COptionMenu GUI edits must persist in processor state");
+ const auto wantLegacy=inst.controller->getParamNormalized(0);
+ const auto wantX3=inst.controller->getParamNormalized(5);
+ state.rewind();
+ require(inst.controller->setComponentState(&state)==kResultOk,
+         "Both option menu edits must survive Controller recall");
+ require(std::fabs(inst.controller->getParamNormalized(0)-wantLegacy)<1.e-10
+      &&std::fabs(inst.controller->getParamNormalized(5)-wantX3)<1.e-10,
+         "Both real native option menus must match processor saved state");
+ require(!bridge->failed,"Option menu host bridge must not fail");
+ require(view->removed()==kResultOk,"Remove native option-menu editor");
+ view->release();
+ require(DestroyWindow(parent)!=0,"Destroy native option-menu parent");
+ require(inst.controller->setComponentHandler(nullptr)==kResultOk,
+         "Unbind option-menu native host handler");
+ bridge->release();
+ inst.stop();
+ std::cout<<"NATIVE GUI HOST PASS: both COptionMenus via HWND Tab/Down, "
+          <<"host edits and persisted processor recall\\n";
+}
 void exerciseAttachedEditor(Module& module) {
  // The previous smoke only queried the 900x470 dimensions. That cannot
  // catch malformed child-view definitions: actually attach the VSTGUI
@@ -1063,6 +1154,7 @@ int main(int argc,char** argv){
  exerciseDenseAutomation(module);
  exerciseAttachedEditor(module);
  exerciseNativeGUIEdits(module);
+ exerciseNativeGUIOptionMenus(module);
 #ifdef ZPLANE_WITH_X3_RESEARCH
  exerciseX3(module);
  exercisePacedX3(module);
