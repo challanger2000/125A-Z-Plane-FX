@@ -27,6 +27,9 @@ class X3ResearchAdapter final {
  };
  Selection primary_{},next_{},pending_{};
  std::uint32_t left_{0},total_{0};
+ double mix_{1.},mixTarget_{1.},mixStep_{0.};
+ std::uint32_t mixRemaining_{0};
+ bool mixReady_{false};
  bool initialized_{false},queued_{false};
  static bool supported(unsigned rate) noexcept {
   return rate==44100||rate==48000||rate==96000||rate==192000;
@@ -95,7 +98,8 @@ public:
  bool hasBanks() const noexcept {return factory_&&extended_;}
  void reset() noexcept {
   primaryL_.reset();primaryR_.reset();nextL_.reset();nextR_.reset();
-  left_=total_=0;queued_=initialized_=false;
+  left_=total_=mixRemaining_=0;queued_=initialized_=mixReady_=false;
+  mix_=mixTarget_=1.;mixStep_=0.;
  }
  bool set(unsigned index,float morph,float resonance,unsigned sampleRate) {
   if(!hasBanks()||index<1||index>55||!supported(sampleRate))return false;
@@ -111,14 +115,25 @@ public:
  void process(const Sample* inL,const Sample* inR,Sample* outL,Sample* outR,
               std::uint32_t frames,double wet,bool bypass) noexcept {
   if(!initialized_||!inL||!inR||!outL||!outR)return;
-  const double amount=bypass?0.:std::clamp(wet,0.,1.);
+  // A timed bypass and wet ramp avoids the discontinuity that was
+  // previously audible on the first sample of each automated segment.
+  const double desired=bypass?0.:std::clamp(std::isfinite(wet)?wet:0.,0.,1.);
+  if(!mixReady_){
+   mix_=mixTarget_=desired;mixReady_=true;
+  }else if(desired!=mixTarget_){
+   mixTarget_=desired;
+   mixRemaining_=std::max<std::uint32_t>(1,
+      static_cast<std::uint32_t>(primary_.rate*0.005));
+   mixStep_=(mixTarget_-mix_)/static_cast<double>(mixRemaining_);
+  }
   for(std::uint32_t i=0;i<frames;++i){
    // A completed crossfade must NOT clear queued_ here: the next
    // completeDeferred() at a host block boundary still needs to apply
    // the latest automation request. In the old version, the last
    // request was silently lost if a fade ended mid-block.
-   const float a=std::isfinite(static_cast<double>(inL[i]))?static_cast<float>(inL[i]):0.f;
-   const float b=std::isfinite(static_cast<double>(inR[i]))?static_cast<float>(inR[i]):0.f;
+   const Sample dryL=std::isfinite(static_cast<double>(inL[i]))?inL[i]:static_cast<Sample>(0);
+   const Sample dryR=std::isfinite(static_cast<double>(inR[i]))?inR[i]:static_cast<Sample>(0);
+   const float a=static_cast<float>(dryL),b=static_cast<float>(dryR);
    const float pa=primaryL_.process_sample(a),pb=primaryR_.process_sample(b);
    float wa=pa,wb=pb;
    if(left_){
@@ -133,8 +148,15 @@ public:
    // At 100% wet, preserve the original float32 DSP output exactly.
    // A double-precision dry/wet subtraction+addition can otherwise
    // introduce a one-ULP difference for tiny impulses.
-   outL[i]=static_cast<Sample>(amount<=0.?a:amount>=1.?wa:double(a)+(double(wa)-a)*amount);
-   outR[i]=static_cast<Sample>(amount<=0.?b:amount>=1.?wb:double(b)+(double(wb)-b)*amount);
+   if(mixRemaining_){
+    mix_+=mixStep_;
+    if(--mixRemaining_==0)mix_=mixTarget_;
+   }
+   const double amount=mix_;
+   outL[i]=amount<=0.?dryL:amount>=1.?static_cast<Sample>(wa):
+     static_cast<Sample>(static_cast<double>(dryL)+(double(wa)-static_cast<double>(dryL))*amount);
+   outR[i]=amount<=0.?dryR:amount>=1.?static_cast<Sample>(wb):
+     static_cast<Sample>(static_cast<double>(dryR)+(double(wb)-static_cast<double>(dryR))*amount);
   }
  }
  void completeDeferred() {
