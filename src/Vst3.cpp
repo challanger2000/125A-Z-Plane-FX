@@ -71,7 +71,25 @@ class Processor final : public AudioEffect {
   constexpr std::uint32_t kScratch=128;
   std::array<Sample,kScratch> legacyL{},legacyR{},x3L{},x3R{};
   for(std::uint32_t base=0;base<frames;){
-   const auto count=std::min(kScratch,frames-base);
+   // An already completed ramp is a HARD DSP ownership boundary,
+   // even inside one long VST3 process segment. Otherwise the inactive
+   // filter keeps accumulating history for different lengths depending
+   // on the host's unrelated block partitioning (audible on re-entry).
+   if(familyLeft_==0){
+    if(familyBlend_<=0.)
+     dsp_.process(il+base,ir+base,ol+base,orr+base,frames-base);
+    else if(x3Available)
+     x3_.process(il+base,ir+base,ol+base,orr+base,frames-base,
+                 params_[kWet],params_[kBypass]>=0.5);
+    else for(std::uint32_t n=base;n<frames;++n){
+     ol[n]=std::isfinite(static_cast<double>(il[n]))?il[n]:Sample(0);
+     orr[n]=std::isfinite(static_cast<double>(ir[n]))?ir[n]:Sample(0);
+    }
+    return;
+   }
+   // The last transitioning sample is part of the dual-engine fade.
+   // Never render the inactive path for surplus frames in this chunk.
+   const auto count=std::min({kScratch,frames-base,familyLeft_});
    dsp_.process(il+base,ir+base,legacyL.data(),legacyR.data(),count);
    if(x3Available)
     x3_.process(il+base,ir+base,x3L.data(),x3R.data(),count,
