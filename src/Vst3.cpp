@@ -24,7 +24,7 @@ constexpr uint32 kMagic=0x3150585Au;
 enum : ParamID { kMode=0,kCutoff=1,kQuality=2,kWet=3,kBypass=4,kX3Filter=5 };
 constexpr std::array<double,6> defaults={0.,0.5,0.5,1.,0.,0.};
 static double clampParam(double x) noexcept {return std::isfinite(x)?std::clamp(x,0.0,1.0):0.;}
-static Settings makeSettings(const std::array<double,5>& p) noexcept {
+static Settings makeSettings(const std::array<double,6>& p) noexcept {
  Settings s;
  s.mode=static_cast<Mode>(std::min(3,static_cast<int>(std::floor(p[0]*4.))));
  s.frequency=20.*std::pow(1000.,p[1]);
@@ -73,10 +73,14 @@ public:
  tresult PLUGIN_API setupProcessing(ProcessSetup& setup) override {
   if(!std::isfinite(setup.sampleRate)||setup.sampleRate<=0.)return kInvalidArgument;
   const auto rc=AudioEffect::setupProcessing(setup);
-  if(rc==kResultOk){rate_=setup.sampleRate;dsp_.reset();dsp_.configure(rate_,makeSettings(params_));
+  if(rc==kResultOk){
+   rate_=setup.sampleRate;
+   dsp_.reset();
+   dsp_.configure(rate_,makeSettings(params_));
 #ifdef ZPLANE_WITH_X3_RESEARCH
-  x3_.reset();
-#endif}
+   x3_.reset();
+#endif
+  }
   return rc;
  }
  tresult PLUGIN_API setProcessing(TBool) override {return kResultOk;}
