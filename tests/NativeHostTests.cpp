@@ -345,6 +345,79 @@ void exerciseX3Mode(Module& module,unsigned id,unsigned rate,int32 format,
  }
  host.stop();
 }
+void exerciseX3TimedFilterSwitch(Module& module,
+ const emux::FactoryBank& factory,const emux::ExtendedBank& extended) {
+ // An actual sample-offset filter change must start at exactly frame 128.
+ // This reference constructs two independent stateful E-MU filters and
+ // their 240-frame crossfade without calling X3ResearchAdapter.
+ constexpr unsigned kRate=48000;
+ constexpr int kFrames=512,kOffset=128,kFade=240;
+ Instance host(module);
+ host.setup(kSample32,kRate,kFrames);
+ ParameterChanges changes;
+ int32 slot=0;
+ auto* filter=changes.addParameterData(5,slot);
+ require(filter!=nullptr,"X3 timed filter automation queue");
+ int32 point=0;
+ require(filter->addPoint(0,1./55.,point)==kResultOk,"Initial X3 mode 1");
+ require(filter->addPoint(kOffset,2./55.,point)==kResultOk,"Timed X3 mode 2");
+ for(const auto& [tag,value]:std::array<std::pair<ParamID,double>,2>{{{1,.35},{2,.65}}}){
+  int32 n=0;
+  auto* q=changes.addParameterData(tag,n);
+  require(q!=nullptr,"X3 morph/resonance automation");
+  int32 idx=0;
+  require(q->addPoint(0,value,idx)==kResultOk,"X3 initial morph/Q point");
+ }
+ std::array<float,kFrames> il{},ir{},ol{},orr{};
+ for(int n=0;n<kFrames;++n){
+  il[static_cast<std::size_t>(n)]=static_cast<float>(.018*std::sin(n*.071));
+  ir[static_cast<std::size_t>(n)]=static_cast<float>(.013*std::cos(n*.093));
+ }
+ Sample32* input[]{il.data(),ir.data()},*output[]{ol.data(),orr.data()};
+ AudioBusBuffers in{},out{};
+ in.numChannels=out.numChannels=2;in.channelBuffers32=input;out.channelBuffers32=output;
+ ProcessData data{};
+ data.numSamples=kFrames;data.numInputs=data.numOutputs=1;
+ data.inputs=&in;data.outputs=&out;data.symbolicSampleSize=kSample32;
+ data.processMode=kRealtime;data.inputParameterChanges=&changes;
+ require(host.audio->process(data)==kResultOk,"Timed X3 native process");
+ const auto cfgA=referenceFor(1,.35f,.65f,kRate,factory,extended);
+ const auto cfgB=referenceFor(2,.35f,.65f,kRate,factory,extended);
+ emux::Filter primaryL(cfgA.coefficients,cfgA.sections);
+ emux::Filter primaryR(cfgA.coefficients,cfgA.sections);
+ emux::Filter nextL(cfgA.coefficients,cfgA.sections);
+ emux::Filter nextR(cfgA.coefficients,cfgA.sections);
+ bool detectedChange=false;
+ for(int n=0;n<kFrames;++n){
+  if(n==kOffset){
+   nextL=primaryL;nextR=primaryR;
+   nextL.set_coefficients(cfgB.coefficients,cfgB.sections);
+   nextR.set_coefficients(cfgB.coefficients,cfgB.sections);
+  }
+  const auto a=il[static_cast<std::size_t>(n)],b=ir[static_cast<std::size_t>(n)];
+  float wantL=0.f,wantR=0.f;
+  if(n<kOffset){
+   wantL=primaryL.process_sample(a);wantR=primaryR.process_sample(b);
+  }else if(n<kOffset+kFade){
+   const auto firstL=primaryL.process_sample(a),firstR=primaryR.process_sample(b);
+   const auto secondL=nextL.process_sample(a),secondR=nextR.process_sample(b);
+   const auto alpha=static_cast<double>(n-kOffset+1)/kFade;
+   wantL=static_cast<float>(firstL+(secondL-firstL)*alpha);
+   wantR=static_cast<float>(firstR+(secondR-firstR)*alpha);
+   if(std::fabs(wantL-firstL)>1.e-7f)detectedChange=true;
+  }else{
+   wantL=nextL.process_sample(a);wantR=nextR.process_sample(b);
+  }
+  if(wantL!=ol[static_cast<std::size_t>(n)]||wantR!=orr[static_cast<std::size_t>(n)]){
+   std::cerr<<"X3 timed host PCM mismatch at frame "<<n<<" expected L="<<wantL
+            <<" actual L="<<ol[static_cast<std::size_t>(n)]<<"\\n";
+   require(false,"X3 sample-offset filter crossfade PCM exactness");
+  }
+ }
+ require(detectedChange,"Timed X3 oracle must distinguish changed and original filter");
+ host.stop();
+ std::cout<<"NATIVE HOST PASS: exact sample-offset X3 filter transition at frame 128\\n";
+}
 void exercisePacedX3(Module& module) {
  // Host-realistic, bounded 256-frame pacing. Measure actual process()
  // call duration separately from scheduler wakeup lag. Do not claim an
@@ -456,6 +529,7 @@ void exerciseX3(Module& module) {
    tested+=2;
   }
  }
+ exerciseX3TimedFilterSwitch(module,factory,extended);
  std::cout<<"Native staged VST3 original-bank X3 modes: "<<tested
           <<" stereo 32/64-bit render cases, 55 filters * 4 rates PASS\n";
 }
