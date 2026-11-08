@@ -13,6 +13,10 @@
 #endif
 #include <windows.h>
 #include <array>
+#include <algorithm>
+#include <chrono>
+#include <numeric>
+#include <thread>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -339,6 +343,85 @@ void exerciseX3Mode(Module& module,unsigned id,unsigned rate,int32 format,
  }
  host.stop();
 }
+void exercisePacedX3(Module& module) {
+ // Host-realistic, bounded 256-frame pacing. Measure actual process()
+ // call duration separately from scheduler wakeup lag. Do not claim an
+ // ASIO PASS based on this uncontrolled cloud-runner measurement.
+ using Clock=std::chrono::steady_clock;
+ constexpr int kFrames=256,kBlocks=180;
+ constexpr double kRate=48000.0;
+ constexpr double kDeadlineMs=1000.0*kFrames/kRate;
+ Instance host(module);
+ host.setup(kSample32,kRate,kFrames);
+ std::array<float,kFrames> inL{},inR{},outL{},outR{};
+ for(int n=0;n<kFrames;++n){
+  inL[static_cast<std::size_t>(n)]=static_cast<float>(std::sin(n*.14)*.01);
+  inR[static_cast<std::size_t>(n)]=static_cast<float>(std::cos(n*.19)*.01);
+ }
+ Sample32* inputs[]{inL.data(),inR.data()};
+ Sample32* outputs[]{outL.data(),outR.data()};
+ AudioBusBuffers in{},out{};
+ in.numChannels=out.numChannels=2;
+ in.channelBuffers32=inputs;out.channelBuffers32=outputs;
+ ProcessData data{};
+ data.numSamples=kFrames;data.numInputs=data.numOutputs=1;
+ data.inputs=&in;data.outputs=&out;
+ data.symbolicSampleSize=kSample32;data.processMode=kRealtime;
+ std::vector<double> callbacks,wakeLateness;
+ callbacks.reserve(kBlocks);wakeLateness.reserve(kBlocks);
+ const auto t0=Clock::now()+std::chrono::milliseconds(15);
+ for(int block=0;block<kBlocks;++block){
+  const auto due=t0+std::chrono::duration_cast<Clock::duration>(
+    std::chrono::duration<double>(double(block*kFrames)/kRate));
+  std::this_thread::sleep_until(due);
+  const auto wake=Clock::now();
+  wakeLateness.push_back(std::chrono::duration<double,std::milli>(wake-due).count());
+  ParameterChanges changes;
+  const std::array<std::pair<ParamID,double>,3> edits{{
+   {5,double(1+block%55)/55.},
+   {1,double(block%101)/100.},
+   {2,double((block*7)%101)/100.}
+  }};
+  for(const auto& [param,value]:edits){
+   int32 index=0;
+   auto* queue=changes.addParameterData(param,index);
+   require(queue!=nullptr,"Paced X3 host queue");
+   int32 point=0;
+   require(queue->addPoint(0,value,point)==kResultOk,"Paced X3 parameter edit");
+  }
+  data.inputParameterChanges=&changes;
+  const auto before=Clock::now();
+  const auto result=host.audio->process(data);
+  const auto after=Clock::now();
+  require(result==kResultOk,"Paced X3 callback status");
+  callbacks.push_back(std::chrono::duration<double,std::milli>(after-before).count());
+  for(int n=0;n<kFrames;++n)
+   require(std::isfinite(outL[static_cast<std::size_t>(n)])
+         &&std::isfinite(outR[static_cast<std::size_t>(n)]),
+         "Paced real X3 mode/morph/resonance output finite");
+ }
+ const auto sum=std::accumulate(callbacks.begin(),callbacks.end(),0.0);
+ std::sort(callbacks.begin(),callbacks.end());
+ const auto percentile=[&](double p){
+  const auto idx=std::min(callbacks.size()-1,
+   static_cast<std::size_t>(std::ceil(p*static_cast<double>(callbacks.size()))-1.));
+  return callbacks[idx];
+ };
+ const auto over=std::count_if(callbacks.begin(),callbacks.end(),
+     [&](double elapsed){return elapsed>kDeadlineMs;});
+ const auto wakeMisses=std::count_if(wakeLateness.begin(),wakeLateness.end(),
+     [&](double elapsed){return elapsed>kDeadlineMs;});
+ std::cout<<"PACED X3 CLOUD MEASUREMENT: "<<kBlocks<<" callbacks; 48kHz/256"
+          <<" deadline_ms="<<kDeadlineMs
+          <<" mean_ms="<<sum/callbacks.size()
+          <<" p95_ms="<<percentile(.95)
+          <<" p99_ms="<<percentile(.99)
+          <<" max_ms="<<callbacks.back()
+          <<" callback_overruns="<<over
+          <<" scheduler_late_blocks="<<wakeMisses
+          <<" (NOT ASIO certification)\\n";
+ host.stop();
+}
 void exerciseX3(Module& module) {
  std::array<wchar_t,32768> directory{};
  const auto len=GetEnvironmentVariableW(L"ZPLANE_X3_BANK_DIR",directory.data(),
@@ -370,6 +453,7 @@ int main(int argc,char** argv){
  exerciseAttachedEditor(module);
 #ifdef ZPLANE_WITH_X3_RESEARCH
  exerciseX3(module);
+ exercisePacedX3(module);
 #endif
  std::cout<<"NATIVE HOST PASS: factory, stereo PCM, timed bypass, float/double, fresh recall, corrupt-state rejection\n";
  return 0;
