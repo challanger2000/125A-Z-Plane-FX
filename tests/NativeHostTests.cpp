@@ -594,14 +594,15 @@ emux::Configuration referenceFor(unsigned id,float morph,float q,unsigned rate,
 }
 template<typename Sample>
 void exerciseX3Mode(Module& module,unsigned id,unsigned rate,int32 format,
- const emux::FactoryBank& factory,const emux::ExtendedBank& extended) {
+ const emux::FactoryBank& factory,const emux::ExtendedBank& extended,
+ float morph,float resonance) {
  Instance host(module);
  host.setup(format,static_cast<double>(rate));
  ParameterChanges changes;
  const std::array<std::pair<ParamID,ParamValue>,3> params{{
   {5,static_cast<double>(id)/55.},
-  {1,.35},
-  {2,.65}
+  {1,static_cast<double>(morph)},
+  {2,static_cast<double>(resonance)}
  }};
  for(const auto& [param,value]:params){
   int32 queueIndex=0;
@@ -632,7 +633,7 @@ void exerciseX3Mode(Module& module,unsigned id,unsigned rate,int32 format,
  data.processMode=kRealtime;
  data.inputParameterChanges=&changes;
  require(host.audio->process(data)==kResultOk,"X3 full native VST3 render");
- const auto cfg=referenceFor(id,.35f,.65f,rate,factory,extended);
+ const auto cfg=referenceFor(id,morph,resonance,rate,factory,extended);
  emux::Filter wantedL(cfg.coefficients,cfg.sections);
  emux::Filter wantedR(cfg.coefficients,cfg.sections);
  for(int i=0;i<128;++i){
@@ -640,6 +641,7 @@ void exerciseX3Mode(Module& module,unsigned id,unsigned rate,int32 format,
   const auto right=static_cast<Sample>(wantedR.process_sample(static_cast<float>(ir[i])));
   if(ol[i]!=left||orr[i]!=right){
    std::cerr<<"X3 PCM mismatch id="<<id<<" rate="<<rate<<" bits="<<(format==kSample32?32:64)
+            <<" morph="<<morph<<" Q="<<resonance
             <<" sample="<<i<<" expected L="<<left<<" actual L="<<ol[i]<<"\n";
    require(false,"all 55 X3 native hosted PCM must match independent research reference");
   }
@@ -1126,12 +1128,21 @@ void exerciseX3(Module& module) {
  const auto factory=emux::FactoryBank::from_table_file((root/"factory-bank.bin").string());
  const auto extended=emux::ExtendedBank::from_table_files(
   (root/"standard-bank.bin").string(),(root/"morph-support.bin").string());
+ // Each X3 filter is exercised at both Morph/Q endpoints, their
+ // crossed extremes, midpoint, and the historical .35/.65 reference.
+ // A fixed single-point oracle had left these parameter boundaries open.
+ constexpr std::array<std::pair<float,float>,6> kControlGrid{{
+  {0.f,0.f},{0.f,1.f},{1.f,0.f},{1.f,1.f},
+  {.5f,.5f},{.35f,.65f}
+ }};
  unsigned tested=0;
  for(unsigned rate:{44100u,48000u,96000u,192000u}){
-  for(unsigned id=1;id<=55;++id){
-   exerciseX3Mode<float>(module,id,rate,kSample32,factory,extended);
-   exerciseX3Mode<double>(module,id,rate,kSample64,factory,extended);
-   tested+=2;
+  for(unsigned id=1;id<=55;++id) {
+   for(const auto& [morph,resonance]:kControlGrid){
+    exerciseX3Mode<float>(module,id,rate,kSample32,factory,extended,morph,resonance);
+    exerciseX3Mode<double>(module,id,rate,kSample64,factory,extended,morph,resonance);
+    tested+=2;
+   }
   }
  }
  exerciseX3TimedFilterSwitch(module,factory,extended);
@@ -1142,7 +1153,7 @@ void exerciseX3(Module& module) {
   exerciseX3FamilyWetBypass<double>(module,kSample64,rate);
  }
  std::cout<<"Native staged VST3 original-bank X3 modes: "<<tested
-          <<" stereo 32/64-bit render cases, 55 filters * 4 rates PASS\n";
+          <<" stereo 32/64-bit PCM renders, 55 filters * 4 rates * 6 Morph/Q pairs PASS\n";
 }
 #endif
 }
