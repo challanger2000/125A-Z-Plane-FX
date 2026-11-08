@@ -38,8 +38,12 @@ if(ZPLANE_BUILD_VST3)
  set(SMTG_CREATE_MODULE_INFO OFF CACHE BOOL "" FORCE)
  add_subdirectory("${VST3_SDK_ROOT}" "${CMAKE_BINARY_DIR}/sdk")
  file(TO_CMAKE_PATH "${VST3_SDK_ROOT}" _ZPlaneSdkRoot)
+ file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resource/ZPlane.uidesc" _ZPlaneUiFile)
+ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ZPlaneResources.rc"
+  "\"ZPlane.uidesc\" DATA \"${_ZPlaneUiFile}\"\n")
  smtg_add_vst3plugin(ZPlaneFX
   "${_ZPlaneSdkRoot}/public.sdk/source/main/dllmain.cpp"
+  "${CMAKE_CURRENT_BINARY_DIR}/ZPlaneResources.rc"
   src/Vst3.cpp
   resource/ZPlane.uidesc)
  target_link_libraries(ZPlaneFX PRIVATE sdk zplane_core vstgui_support)
