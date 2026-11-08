@@ -57,7 +57,12 @@ public:
  tresult PLUGIN_API setActive(TBool active) override {
   if(!active)dsp_.reset();return AudioEffect::setActive(active);
  }
- uint32 PLUGIN_API getTailSamples() override {return kInfiniteTail;}
+ uint32 PLUGIN_API getTailSamples() override {
+  // The resonant IIR has a decaying but potentially long impulse response.
+  // Never report infinite duration for a non-generative audio insert.
+  // Conservative 30-second cap at all supported sample rates.
+  return static_cast<uint32>(std::clamp(rate_*30.,1.,static_cast<double>(UINT32_MAX-1)));
+ }
  tresult PLUGIN_API process(ProcessData& data) override {
   if(data.numSamples<0||data.numInputs<0||data.numOutputs<0)return kInvalidArgument;
   // Host automation is time-stamped. Never collapse a queue to its last
@@ -78,6 +83,7 @@ public:
       }
     }
   }
+  timeline.finalize();
   if(data.numSamples==0){
     for(std::size_t e=0;e<timeline.size();++e)params_[timeline[e].parameter]=timeline[e].value;
     return kResultOk;

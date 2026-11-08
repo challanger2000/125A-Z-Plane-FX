@@ -83,6 +83,8 @@ struct Instance {
   ProcessSetup setup{};setup.sampleRate=48000.;setup.maxSamplesPerBlock=512;
   setup.processMode=kRealtime;setup.symbolicSampleSize=sampleFormat;
   require(audio->setupProcessing(setup)==kResultOk,"setupProcessing");
+  const auto tail=audio->getTailSamples();
+  require(tail!=kInfiniteTail&&tail>=48000u,"Finite bounded IIR filter tail");
   require(component->setActive(true)==kResultOk,"setActive(true)");
   require(audio->setProcessing(true)==kResultOk,"setProcessing(true)");
  }
@@ -136,6 +138,15 @@ void exercise(Module& module,int32 format){
  require(bypass!=nullptr,"Bypass parameter queue");
  int32 pointIndex=0;
  require(bypass->addPoint(128,1.,pointIndex)==kResultOk,"Bypass at offset 128");
+ // Earlier and later points in the same queue must preserve their timestamps.
+ // Final point is the persisted ON state, so the prior save/recall oracle
+ // continues to detect a collapsed-queue implementation.
+ int32 index2=0;
+ auto* wet=changes.addParameterData(3,index2);
+ require(wet!=nullptr,"Wet queue");
+ int32 point2=0;
+ require(wet->addPoint(32,0.6,point2)==kResultOk,"Wet at offset 32");
+ require(wet->addPoint(64,1.,point2)==kResultOk,"Wet at offset 64");
  if(format==kSample32)render<float>(i,format,&changes,true);
  else render<double>(i,format,&changes,true);
  Steinberg::ResizableMemoryIBStream saved;
