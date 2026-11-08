@@ -32,7 +32,7 @@ jobs:
       - name: Build prototype, standalone tests and Steinberg Validator
         shell: pwsh
         run: |
-          cmake --build build --config Release --target ZPlaneFX zplane_core_tests zplane_automation_tests validator --parallel 2
+          cmake --build build --config Release --target ZPlaneFX zplane_core_tests zplane_automation_tests zplane_native_host_tests validator --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'MSVC build failed' }
       - name: Actual Release-mode functional DSP tests
         shell: pwsh
@@ -56,6 +56,12 @@ jobs:
           if (-not $validator) { throw 'Official Steinberg validator unavailable' }
           & $validator.FullName (Resolve-Path 'artifact/125A Z-Plane FX.vst3').Path
           if ($LASTEXITCODE -ne 0) { throw 'Steinberg Validator failed on final staged bundle' }
+      - name: Native packaged host audio, automation and recall
+        shell: pwsh
+        run: |
+          $binary=(Resolve-Path 'artifact/125A Z-Plane FX.vst3/Contents/x86_64-win/125A Z-Plane FX.vst3').Path
+          & 'build/Release/zplane_native_host_tests.exe' $binary
+          if ($LASTEXITCODE -ne 0) { throw 'Native host integration failed' }
       - name: Upload DEVELOPMENT build, never mark as release
         uses: actions/upload-artifact@v4
         with:
