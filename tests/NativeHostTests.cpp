@@ -1,5 +1,6 @@
 // Native Windows host probe against the exact staged .vst3 module.
 // Tests real VST3 factory, 32/64-bit rendering, automation and project recall.
+#include "FilterCore.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "public.sdk/source/vst/hosting/parameterchanges.h"
 #include "public.sdk/source/vst/utility/memoryibstream.h"
