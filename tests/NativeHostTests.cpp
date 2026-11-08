@@ -147,6 +147,32 @@ void render(Instance& inst,int32 format,ParameterChanges* changes,bool verify){
            "Sample-accurate bypass and five-ms ramp");
  }
 }
+void exerciseAttachedEditor(Module& module) {
+ // The previous smoke only queried the 900x470 dimensions. That cannot
+ // catch malformed child-view definitions: actually attach the VSTGUI
+ // editor to an HWND and require it to create a native child window.
+ Instance instance(module);
+ HWND parent=CreateWindowExW(0,L"STATIC",L"ZPlane QA host",
+                           WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+                           CW_USEDEFAULT,CW_USEDEFAULT,920,520,
+                           nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+ require(parent!=nullptr,"Create native Win32 GUI test parent");
+ auto* view=instance.controller->createView(ViewType::kEditor);
+ require(view!=nullptr,"Create independent GUI instance");
+ require(view->isPlatformTypeSupported(kPlatformTypeHWND)==kResultTrue,
+         "Win32 host platform must be supported");
+ require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
+         "VSTGUI must attach and parse its child views");
+ ViewRect rect{};
+ require(view->getSize(&rect)==kResultOk&&rect.getWidth()==900&&rect.getHeight()==470,
+         "VSTGUI attached canvas size");
+ require(GetWindow(parent,GW_CHILD)!=nullptr,
+         "Attached VSTGUI must create an actual native child window");
+ require(view->removed()==kResultOk,"Clean VSTGUI detach");
+ view->release();
+ require(DestroyWindow(parent)!=0,"Destroy GUI test parent");
+ std::cout<<"NATIVE GUI HOST PASS: real HWND editor attach, child window and detach\\n";
+}
 void exercise(Module& module,int32 format){
  Instance i(module);i.setup(format);
  ParameterChanges changes;
@@ -286,6 +312,7 @@ int main(int argc,char** argv){
  Module module{std::filesystem::path(argv[1])};
  exercise(module,kSample32);
  exercise(module,kSample64);
+ exerciseAttachedEditor(module);
 #ifdef ZPLANE_WITH_X3_RESEARCH
  exerciseX3(module);
 #endif
