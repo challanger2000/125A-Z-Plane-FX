@@ -79,7 +79,7 @@ int main() {
  // boundary, and must be independent of host block partitioning.
  zplane::X3ResearchAdapter smooth,partitioned;
  REQUIRE(smooth.load(root,error)&&partitioned.load(root,error));
- REQUIRE(smooth.set(36,.35f,.65f,48000)&&partitioned.set(36,.35f,.65f,48000));
+ REQUIRE(smooth.set(37,.35f,.65f,48000)&&partitioned.set(37,.35f,.65f,48000));
  std::array<double,512> signal{},none{},initialL{},initialR{},fadedL{},fadedR{},splitL{},splitR{};
  signal.fill(.25);
  smooth.process(signal.data(),none.data(),initialL.data(),initialR.data(),512,1.,false);
