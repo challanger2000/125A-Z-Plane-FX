@@ -1,0 +1,22 @@
+name: Remove publicly exposed proprietary X3 setup
+on:
+  push:
+    paths:
+      - '.github/workflows/cleanup-x3-release.yml'
+permissions:
+  contents: write
+jobs:
+  remove:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete test release, original installer and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete x3-test -R challanger2000/125A-Z-Plane-FX --cleanup-tag --yes
+          if gh release view x3-test -R challanger2000/125A-Z-Plane-FX >/dev/null 2>&1; then
+            echo 'Removal verification failed'
+            exit 1
+          fi
+          echo 'Release and proprietary EXE no longer published'
