@@ -12,6 +12,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
 #include <array>
 #include <algorithm>
 #include <chrono>
@@ -351,6 +353,18 @@ void exercisePacedX3(Module& module) {
  constexpr int kFrames=256,kBlocks=180;
  constexpr double kRate=48000.0;
  constexpr double kDeadlineMs=1000.0*kFrames/kRate;
+ // In the initial cloud run, 118/180 wakeups were more than one
+ // callback deadline late despite short DSP execution. Request a 1 ms
+ // Windows timer period, and report wakeup jitter separately.
+ const auto timerPeriodStatus=timeBeginPeriod(1);
+ std::array<double,1000> timerOverheads{};
+ for(auto& elapsed:timerOverheads){
+  const auto a=Clock::now();
+  const auto b=Clock::now();
+  elapsed=std::chrono::duration<double,std::milli>(b-a).count();
+ }
+ std::sort(timerOverheads.begin(),timerOverheads.end());
+ const double timerP99=timerOverheads[989];
  Instance host(module);
  host.setup(kSample32,kRate,kFrames);
  std::array<float,kFrames> inL{},inR{},outL{},outR{};
@@ -419,7 +433,10 @@ void exercisePacedX3(Module& module) {
           <<" max_ms="<<callbacks.back()
           <<" callback_overruns="<<over
           <<" scheduler_late_blocks="<<wakeMisses
+          <<" timer_resolution_requested="<<(timerPeriodStatus==TIMERR_NOERROR?1:0)
+          <<" clock_p99_overhead_ms="<<timerP99
           <<" (NOT ASIO certification)\\n";
+ if(timerPeriodStatus==TIMERR_NOERROR)timeEndPeriod(1);
  host.stop();
 }
 void exerciseX3(Module& module) {
