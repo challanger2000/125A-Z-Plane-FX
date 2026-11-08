@@ -35,8 +35,9 @@ if(ZPLANE_BUILD_VST3)
  set(SMTG_RUN_VST_VALIDATOR OFF CACHE BOOL "" FORCE)
  set(SMTG_CREATE_MODULE_INFO OFF CACHE BOOL "" FORCE)
  add_subdirectory("${VST3_SDK_ROOT}" "${CMAKE_BINARY_DIR}/sdk")
+ file(TO_CMAKE_PATH "${VST3_SDK_ROOT}" _ZPlaneSdkRoot)
  smtg_add_vst3plugin(ZPlaneFX
-  "${VST3_SDK_ROOT}/public.sdk/source/main/dllmain.cpp"
+  "${_ZPlaneSdkRoot}/public.sdk/source/main/dllmain.cpp"
   src/Vst3.cpp)
  target_link_libraries(ZPlaneFX PRIVATE sdk zplane_core)
  target_compile_features(ZPlaneFX PRIVATE cxx_std_23)
