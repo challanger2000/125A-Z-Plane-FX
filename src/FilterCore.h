@@ -60,7 +60,8 @@ public:
   void process(const Sample* inL,const Sample* inR,Sample* outL,Sample* outR,std::uint32_t frames) noexcept {
     if(!inL||!inR||!outL||!outR)return;
     for(std::uint32_t i=0;i<frames;++i){
-      const double xL=inL[i],xR=inR[i];
+      const double xL=std::isfinite(static_cast<double>(inL[i]))?static_cast<double>(inL[i]):0.;
+      const double xR=std::isfinite(static_cast<double>(inR[i]))?static_cast<double>(inR[i]):0.;
       // Keep filter states warm when dry/bypassed, for seamless transitions.
       const double yL=l_.tick(xL),yR=r_.tick(xR);
       const double wet=last_.bypass?0.0:last_.wet;
