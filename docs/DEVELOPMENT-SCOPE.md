@@ -29,3 +29,11 @@ Prototype does not emulate X3 filter types, native coefficient tables, morph des
 - Real loaded Win32 VST3 module host smoke PASS: processor/controller factory instantiation, stereo 32/64-bit PCM, bypass automation at sample offset 128, VST3 component state save and fresh-instance restore, controller state synchronization, truncated state rejection.
 - No actual Fender Studio Pro owner acceptance, no 125A Plugin Tester, no paced ASIO/ETW, no E-MU original-reference 55-filter comparison in THIS plugin build. These remain NOT VERIFIED.
 - No complete 125A FULL AUDIT performed; Windows CI outcome does not authorize release.
+
+## Windows regression extension — 2026-11-08, 19:33 UTC
+
+- Tested source commit: `31c51ca1d58ce55d797283bf96022f134e8b2b1c`.
+- [Windows Actions 42515465687](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42515465687): SUCCESS; 2/2 CTest, Steinberg 47/47, native packaged host PASS.
+- Verified code repair: automation collection is O(1) append and single O(N log N) final sort, with explicit same-timestamp event-order guarantee. Prior insertion strategy was O(N²) in worst case; dense descending-time synthetic test covers the formerly expensive path.
+- Verified code repair: no more `kInfiniteTail` for finite-decay IIR insert. `getTailSamples()` now reports conservative finite 30-second upper bound at the configured host sample rate; native test checks bounded tail metadata. This bound is **conservative and not an independent measured decay guarantee** under every coefficient combination; shorter accurate tail calculation is future work.
+- Native host also sends multiple different parameter queues with sample-offset values, and confirms existing 32-/64-bit sound, bypass/recall and malformed-state regression. Additional paced realtime stress, callback worst-case profiling, 125A Test Lab, the user's real DAW and the 55-filter reference integration remain NOT VERIFIED.
