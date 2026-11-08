@@ -1,4 +1,5 @@
 #include "FilterCore.h"
+#include "AutomationTimeline.h"
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include "public.sdk/source/main/pluginfactory.h"
@@ -58,29 +59,60 @@ public:
  uint32 PLUGIN_API getTailSamples() override {return kInfiniteTail;}
  tresult PLUGIN_API process(ProcessData& data) override {
   if(data.numSamples<0||data.numInputs<0||data.numOutputs<0)return kInvalidArgument;
+  // Host automation is time-stamped. Never collapse a queue to its last
+  // event before rendering the entire block.
+  AutomationTimeline timeline;
   if(data.inputParameterChanges){
     const int32 count=data.inputParameterChanges->getParameterCount();
     for(int32 i=0;i<count;++i) {
       auto* queue=data.inputParameterChanges->getParameterData(i);if(!queue)continue;
       const auto id=queue->getParameterId();if(id>kBypass)continue;
-      const int32 points=queue->getPointCount();if(points<1)continue;
-      int32 offset=0;ParamValue value=0.;
-      if(queue->getPoint(points-1,offset,value)==kResultOk) params_[id]=clampParam(value);
+      const int32 points=queue->getPointCount();
+      for(int32 p=0;p<points;++p) {
+        int32 offset=0;ParamValue value=0.;
+        if(queue->getPoint(p,offset,value)!=kResultOk||offset<0||offset>data.numSamples||!std::isfinite(value))continue;
+        if(!timeline.add(static_cast<uint32>(offset),id,clampParam(value)))
+          return kResultFalse; // no silent loss of accepted automation
+      }
     }
   }
-  if(data.numSamples==0)return kResultOk;
+  if(data.numSamples==0){
+    for(std::size_t e=0;e<timeline.size();++e)params_[timeline[e].parameter]=timeline[e].value;
+    return kResultOk;
+  }
   if(data.numInputs<1||data.numOutputs<1||!data.inputs||!data.outputs)return kInvalidArgument;
   auto& in=data.inputs[0];auto& out=data.outputs[0];
   if(in.numChannels!=2||out.numChannels!=2)return kInvalidArgument;
-  dsp_.configure(rate_,makeSettings(params_));
   const auto n=static_cast<uint32>(data.numSamples);
-  if(data.symbolicSampleSize==kSample32) {
+  if(data.symbolicSampleSize!=kSample32&&data.symbolicSampleSize!=kSample64)return kInvalidArgument;
+  if(data.symbolicSampleSize==kSample32){
     if(!in.channelBuffers32||!out.channelBuffers32||!in.channelBuffers32[0]||!in.channelBuffers32[1]||!out.channelBuffers32[0]||!out.channelBuffers32[1])return kInvalidArgument;
-    dsp_.process(in.channelBuffers32[0],in.channelBuffers32[1],out.channelBuffers32[0],out.channelBuffers32[1],n);
-  }else if(data.symbolicSampleSize==kSample64){
+  }else{
     if(!in.channelBuffers64||!out.channelBuffers64||!in.channelBuffers64[0]||!in.channelBuffers64[1]||!out.channelBuffers64[0]||!out.channelBuffers64[1])return kInvalidArgument;
-    dsp_.process(in.channelBuffers64[0],in.channelBuffers64[1],out.channelBuffers64[0],out.channelBuffers64[1],n);
-  }else return kInvalidArgument;
+  }
+  std::uint32_t cursor=0;
+  std::size_t event=0;
+  while(cursor<n){
+    while(event<timeline.size()&&timeline[event].offset==cursor){
+      params_[timeline[event].parameter]=timeline[event].value;++event;
+    }
+    const auto next=event<timeline.size()?std::min(n,timeline[event].offset):n;
+    if(next<=cursor)return kResultFalse;
+    dsp_.configure(rate_,makeSettings(params_));
+    const auto length=next-cursor;
+    if(data.symbolicSampleSize==kSample32){
+      dsp_.process(in.channelBuffers32[0]+cursor,in.channelBuffers32[1]+cursor,
+                   out.channelBuffers32[0]+cursor,out.channelBuffers32[1]+cursor,length);
+    }else{
+      dsp_.process(in.channelBuffers64[0]+cursor,in.channelBuffers64[1]+cursor,
+                   out.channelBuffers64[0]+cursor,out.channelBuffers64[1]+cursor,length);
+    }
+    cursor=next;
+  }
+  // An event at offset n defines the state for the following callback.
+  while(event<timeline.size()){
+    params_[timeline[event].parameter]=timeline[event].value;++event;
+  }
   out.silenceFlags=0;return kResultOk;
  }
  tresult PLUGIN_API getState(IBStream* stream) override {
