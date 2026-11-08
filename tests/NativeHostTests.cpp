@@ -180,10 +180,12 @@ void exercise(Module& module,int32 format){
 }
 #ifdef ZPLANE_WITH_X3_RESEARCH
 void exerciseX3(Module& module) {
- const char* env=std::getenv("ZPLANE_X3_BANK_DIR");
- require(env&&*env,"Actual X3 bank directory must be supplied by build");
+ std::array<wchar_t,32768> directory{};
+ const auto len=GetEnvironmentVariableW(L"ZPLANE_X3_BANK_DIR",directory.data(),
+                                       static_cast<DWORD>(directory.size()));
+ require(len>0&&len<directory.size(),"Actual X3 bank directory must be supplied by build");
  const auto factory=emux::FactoryBank::from_table_file(
-  (std::filesystem::u8path(env)/"factory-bank.bin").string());
+  (std::filesystem::path(directory.data())/"factory-bank.bin").string());
  Instance i(module);i.setup(kSample32);
  ParameterChanges changes;
  for(auto point:std::array<std::pair<ParamID,ParamValue>,3>{
