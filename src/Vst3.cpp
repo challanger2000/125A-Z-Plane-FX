@@ -8,12 +8,14 @@
 #endif
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "public.sdk/source/vst/vsteditcontroller.h"
+#include "vstgui/plugin-bindings/vst3editor.h"
 #include "public.sdk/source/main/pluginfactory.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "base/source/fstreamer.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 
 namespace zplane {
 using namespace Steinberg;
@@ -202,8 +204,13 @@ public:
   params_=candidate;dsp_.configure(rate_,makeSettings(params_));return kResultOk;
  }
 };
-class Controller final : public EditController {
+class Controller final : public EditController, public VSTGUI::VST3EditorDelegate {
 public:
+ IPlugView* PLUGIN_API createView(FIDString name) override {
+  if(name&&std::strcmp(name,ViewType::kEditor)==0)
+   return new VSTGUI::VST3Editor(this,"ZPlaneMain","ZPlane.uidesc");
+  return nullptr;
+ }
  static FUnknown* createInstance(void*){return static_cast<IEditController*>(new Controller());}
  tresult PLUGIN_API initialize(FUnknown* context) override {
   const auto rc=EditController::initialize(context);if(rc!=kResultOk)return rc;
