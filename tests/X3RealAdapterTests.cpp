@@ -51,6 +51,30 @@ int main() {
    }
   }
  }
+ // Regression: during a 5 ms crossfade, another filter selection must
+ // survive until the next safe host block boundary. The old process()
+ // implementation silently cleared the pending request when a fade
+ // finished mid-block, leaving the wrong filter selected indefinitely.
+ zplane::X3ResearchAdapter queued,reference3;
+ REQUIRE(queued.load(root,error));
+ REQUIRE(reference3.load(root,error));
+ REQUIRE(queued.set(1,.35f,.65f,48000));
+ REQUIRE(queued.set(2,.35f,.65f,48000));
+ REQUIRE(queued.set(3,.35f,.65f,48000)); // latest must win
+ REQUIRE(reference3.set(3,.35f,.65f,48000));
+ std::array<float,512> silent{},silentOutputL{},silentOutputR{};
+ queued.process(silent.data(),silent.data(),silentOutputL.data(),silentOutputR.data(),512,1.,false);
+ queued.completeDeferred();
+ queued.process(silent.data(),silent.data(),silentOutputL.data(),silentOutputR.data(),512,1.,false);
+ queued.completeDeferred();
+ // At this point the queued transition must have finished. A fresh
+ // impulse must match the final requested mode rather than mode 2.
+ std::array<float,64> probe{},selectedL{},selectedR{},expectedL{},expectedR{};
+ probe[0]=.001f;
+ queued.process(probe.data(),silent.data(),selectedL.data(),selectedR.data(),64,1.,false);
+ reference3.process(probe.data(),silent.data(),expectedL.data(),expectedR.data(),64,1.,false);
+ REQUIRE(std::memcmp(selectedL.data(),expectedL.data(),64*sizeof(float))==0);
+ REQUIRE(std::memcmp(selectedR.data(),expectedR.data(),64*sizeof(float))==0);
  REQUIRE(nonzero>0);
  std::printf("55 original X3 modes * 4 sample rates: %u plugin PCM samples bit-identical to reference implementation\n",checked);
  return EXIT_SUCCESS;
