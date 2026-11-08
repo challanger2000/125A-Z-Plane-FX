@@ -48,11 +48,21 @@ class StereoFilter {
   Biquad l_,r_;
   Settings last_{};
   double rate_{48000.};
+  double currentWet_{1.},targetWet_{1.},wetIncrement_{0.};
+  std::uint32_t wetRemaining_{0};
+  bool ready_{false};
 public:
   void reset() noexcept {l_.reset();r_.reset();}
   void configure(double rate,const Settings& s) noexcept {
     if(std::isfinite(rate)&&rate>0.)rate_=rate;
     last_=s;last_.wet=std::clamp(std::isfinite(s.wet)?s.wet:0.,0.,1.);
+    const double desired=s.bypass?0.0:last_.wet;
+    if(!ready_){currentWet_=targetWet_=desired;wetRemaining_=0;ready_=true;}
+    else if(desired!=targetWet_){
+      targetWet_=desired;
+      wetRemaining_=static_cast<std::uint32_t>(std::clamp(rate_*0.005,1.0,48000.0));
+      wetIncrement_=(targetWet_-currentWet_)/static_cast<double>(wetRemaining_);
+    }
     l_.configure(s.mode,rate_,s.frequency,s.quality);
     r_.configure(s.mode,rate_,s.frequency,s.quality);
   }
@@ -64,7 +74,11 @@ public:
       const double xR=std::isfinite(static_cast<double>(inR[i]))?static_cast<double>(inR[i]):0.;
       // Keep filter states warm when dry/bypassed, for seamless transitions.
       const double yL=l_.tick(xL),yR=r_.tick(xR);
-      const double wet=last_.bypass?0.0:last_.wet;
+      if(wetRemaining_>0){
+        currentWet_+=wetIncrement_;
+        if(--wetRemaining_==0)currentWet_=targetWet_;
+      }
+      const double wet=currentWet_;
       outL[i]=static_cast<Sample>(wet==0.0?xL:xL+(yL-xL)*wet);
       outR[i]=static_cast<Sample>(wet==0.0?xR:xR+(yR-xR)*wet);
     }
