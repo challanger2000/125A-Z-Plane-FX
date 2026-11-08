@@ -184,18 +184,61 @@ void exerciseDenseAutomation(Module& module) {
           "VST3 queue can hold dense events");
  }
  data.inputParameterChanges=&changes;
+ // Independent automation oracle: the unautomated plugin supplies the
+ // filtered PCM. A separate, analytically computed 240-sample gain ramp
+ // then predicts EVERY dense host parameter event's audio consequence.
+ // This fails if a processor collapses the 4096 points to one final value
+ // while still returning finite PCM (the former test's blind spot).
+ Instance reference(module);
+ reference.setup(kSample32,48000.,4096);
+ std::array<float,4096> filteredL{},filteredR{};
+ Sample32* referenceOutputs[]{filteredL.data(),filteredR.data()};
+ AudioBusBuffers referenceOut{};
+ referenceOut.numChannels=2;
+ referenceOut.channelBuffers32=referenceOutputs;
+ ProcessData referenceData=data;
+ referenceData.outputs=&referenceOut;
+ referenceData.inputParameterChanges=nullptr;
+ require(reference.audio->process(referenceData)==kResultOk,
+         "Reference filtered PCM for dense automation");
  require(host.audio->process(data)==kResultOk,
          "4096 densely automated edits must not overrun event timeline");
- for(int i=0;i<4096;++i)
-  require(std::isfinite(outL[static_cast<std::size_t>(i)])
-      &&outR[static_cast<std::size_t>(i)]==0.f,
-      "Dense automation must remain finite and stereo-separated");
+ double wetEnvelope=1.0;
+ unsigned distinguishable=0;
+ for(int i=0;i<4096;++i){
+  const auto n=static_cast<std::size_t>(i);
+  const double requested=(i%2)?0.99:0.01;
+  // 48 kHz * 5 ms = 240 frames; each new host point retargets
+  // the envelope from its CURRENT value, not from a stale endpoint.
+  wetEnvelope+=(requested-wetEnvelope)/240.0;
+  const double expected=static_cast<double>(inL[n])+
+     (static_cast<double>(filteredL[n])-static_cast<double>(inL[n]))*wetEnvelope;
+  require(std::isfinite(outL[n])&&std::isfinite(outR[n])&&outR[n]==0.f,
+          "Dense automation must remain finite and stereo-separated");
+  require(std::fabs(static_cast<double>(outL[n])-expected)<1.e-6,
+          "Every dense host sample-offset wet edit must affect actual PCM");
+  if(std::fabs(static_cast<double>(outL[n])-static_cast<double>(filteredL[n]))>0.01)
+   ++distinguishable;
+ }
+ require(distinguishable>256,
+         "Dense automation oracle must distinguish ignored host parameter events");
  // 4097 points must fail explicitly rather than silently discard
  // parameter edits or run out of bounds.
  auto* queue=changes.getParameterData(0);
  int32 added=0;
  require(queue->addPoint(4096,.25,added)==kResultOk,"Overflow fixture");
  require(host.audio->process(data)!=kResultOk,"Overflow must be reported");
+ // Rejecting event 4097 must not commit any partial parameter state.
+ // The last accepted offset 4095 specified wet=0.99.
+ Steinberg::ResizableMemoryIBStream afterOverflow;
+ require(host.component->getState(&afterOverflow)==kResultOk,
+         "Processor state remains saveable after automation overflow");
+ afterOverflow.rewind();
+ require(host.controller->setComponentState(&afterOverflow)==kResultOk,
+         "Controller accepts processor state after rejected overflow");
+ require(std::fabs(host.controller->getParamNormalized(3)-0.99)<1.e-12,
+         "Rejected overflow must preserve last accepted wet parameter");
+ reference.stop();
  host.stop();
  std::cout<<"NATIVE HOST PASS: 4096 timed edits, finite PCM, overflow rejection\\n";
 }
