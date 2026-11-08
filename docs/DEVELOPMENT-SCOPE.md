@@ -56,3 +56,21 @@ Prototype does not emulate X3 filter types, native coefficient tables, morph des
 - The new `zplane_x3_adapter_tests` exercises all **55 external research paths** with generated zero-bank fixtures, including rejection of invalid filter indexes and unsupported sample rates. This confirms code-path integration; it does **not** establish that real original extracted banks have been exercised or their audio matches Emulator X3.
 - The previous Validator failures (45/47) were traced to the controller rejecting newly introduced state version 2; fixed and confirmed in the exact final successful run above.
 - Future critical tests: independent original-bank PCM comparisons of all 55 modes; controllable programmable filter parameters; click-free transitions between legacy and X3 modes; worst-case callback runtime, bounded exception-free scheduling; actual bank presence/error UI; Windows 125A Test Lab and DAW. All remain NOT VERIFIED.
+
+## Real reconstructed X3-bank acceptance — 2026-11-08 20:22 UTC
+
+**Supersedes earlier statements that the original bank data were unavailable.** The original 33-filter packed tables, 17 standard filter tables and five-mode programmable support have now been deterministically reconstructed from the archive's original-reference vectors.
+
+- `factory-bank.bin`: 31,680 bytes, SHA-256 `a630fc5cbe06019413b26266abced6b70ed248c601c3b2e5ff80550425498d2e`
+- `standard-bank.bin`: 4,960 bytes, SHA-256 `1dcc23515bf64e84ef99362ca0019ff9256bc1df33b2e3ab355d7facf4a12b58`
+- `morph-support.bin`: 402 bytes, SHA-256 `ce5f9b8411e86a5d21d6a93064811c8c6eda91548f62e871643754528c87c215`
+
+The stand-alone reconstruction tool at `tools/reconstruct_x3_banks.py` verifies both the original research vectors and expected SHA-256 hashes. The public repository includes no original coefficient bank files; Windows CI regenerates them in a temporary test directory and excludes them from upload artifacts.
+
+[Windows Actions run 42519613802](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42519613802): SUCCESS on commit `b197c4009b6d0cc07c535b7e6acb26d2dd67371a`.
+- **6/6 CTests PASS**, including all 55 adapter modes × 4 original X3 sample rates with real banks and bit-exact stereo PCM, original C++ 924-case factory comparison and 3,156-case standard/programmable comparison (packed frames, coefficients, audio and split-block processing).
+- **47/47 Steinberg VST3 Validator PASS**.
+- Native Windows host PASS: real staged VST3 module loads and reproduces the original-bank factory filter PCM on stereo 32-bit audio; previous 64-bit, bypass/automation, save/restore and malformed-state tests also PASS.
+- Source-only documentation edits after that commit do not affect the tested binary.
+
+**Still NOT VERIFIED:** full independent 125A Plugin Test Lab audit, paced ASIO stress and strict worst-case audio deadline; real DAW owner acceptance; programmable GUI editing; all 55 types end-to-end through host automation; modulation/morph control timing equivalence beyond covered reference vectors; external code/data commercialization and licensing clearance. No FULL AUDIT or release approval.
