@@ -18,6 +18,7 @@
 #include <vector>
 #ifdef ZPLANE_WITH_X3_RESEARCH
 #include "emux_filters.hpp"
+#include "emux_extended.hpp"
 #endif
 
 using namespace Steinberg;
@@ -80,10 +81,10 @@ struct Instance {
   require(component->initialize(&host)==kResultOk,"Processor init");
   require(controller->initialize(&host)==kResultOk,"Controller init");
  }
- void setup(int32 sampleFormat){
+ void setup(int32 sampleFormat,double sampleRate=48000.){
   SpeakerArrangement stereo=SpeakerArr::kStereo;
   require(audio->setBusArrangements(&stereo,1,&stereo,1)==kResultOk,"Stereo arrangement");
-  ProcessSetup setup{};setup.sampleRate=48000.;setup.maxSamplesPerBlock=512;
+  ProcessSetup setup{};setup.sampleRate=sampleRate;setup.maxSamplesPerBlock=512;
   setup.processMode=kRealtime;setup.symbolicSampleSize=sampleFormat;
   require(audio->setupProcessing(setup)==kResultOk,"setupProcessing");
   const auto tail=audio->getTailSamples();
@@ -179,47 +180,91 @@ void exercise(Module& module,int32 format){
  restored.stop();i.stop();
 }
 #ifdef ZPLANE_WITH_X3_RESEARCH
+emux::Configuration referenceFor(unsigned id,float morph,float q,unsigned rate,
+ const emux::FactoryBank& factory,const emux::ExtendedBank& extended) {
+ if(id<=33)return {factory.coefficients(id-1,morph,q,rate),6};
+ if(id<=50)return extended.coefficients(id-34,morph,q,rate);
+ if(id<55)return extended.morph_coefficients(
+  static_cast<emux::MorphKind>(id-51),
+  emux::MorphParameters{32,96,64,48,112,64},morph,q,rate);
+ std::array<emux::DesignerSection,6> sections{};
+ sections[0].shape=emux::Shape::eq;
+ sections[1].shape=emux::Shape::lowpass;
+ return extended.designer_coefficients(sections,morph,q,rate);
+}
+template<typename Sample>
+void exerciseX3Mode(Module& module,unsigned id,unsigned rate,int32 format,
+ const emux::FactoryBank& factory,const emux::ExtendedBank& extended) {
+ Instance host(module);
+ host.setup(format,static_cast<double>(rate));
+ ParameterChanges changes;
+ const std::array<std::pair<ParamID,ParamValue>,3> params{{
+  {5,static_cast<double>(id)/55.},
+  {1,.35},
+  {2,.65}
+ }};
+ for(const auto& [param,value]:params){
+  int32 queueIndex=0;
+  auto* queue=changes.addParameterData(param,queueIndex);
+  require(queue!=nullptr,"X3 host parameter queue");
+  int32 pointIndex=0;
+  require(queue->addPoint(0,value,pointIndex)==kResultOk,"X3 sample-zero parameter");
+ }
+ std::array<Sample,128> il{},ir{},ol{},orr{};
+ il[0]=static_cast<Sample>(.001f);
+ ir[7]=static_cast<Sample>(-.001f);
+ Sample* inputs[2]{il.data(),ir.data()};
+ Sample* outputs[2]{ol.data(),orr.data()};
+ AudioBusBuffers in{},out{};
+ in.numChannels=out.numChannels=2;
+ if(format==kSample32){
+  in.channelBuffers32=reinterpret_cast<Sample32**>(inputs);
+  out.channelBuffers32=reinterpret_cast<Sample32**>(outputs);
+ }else{
+  in.channelBuffers64=reinterpret_cast<Sample64**>(inputs);
+  out.channelBuffers64=reinterpret_cast<Sample64**>(outputs);
+ }
+ ProcessData data{};
+ data.numSamples=128;
+ data.numInputs=data.numOutputs=1;
+ data.inputs=&in;data.outputs=&out;
+ data.symbolicSampleSize=format;
+ data.processMode=kRealtime;
+ data.inputParameterChanges=&changes;
+ require(host.audio->process(data)==kResultOk,"X3 full native VST3 render");
+ const auto cfg=referenceFor(id,.35f,.65f,rate,factory,extended);
+ emux::Filter wantedL(cfg.coefficients,cfg.sections);
+ emux::Filter wantedR(cfg.coefficients,cfg.sections);
+ for(int i=0;i<128;++i){
+  const auto left=static_cast<Sample>(wantedL.process_sample(static_cast<float>(il[i])));
+  const auto right=static_cast<Sample>(wantedR.process_sample(static_cast<float>(ir[i])));
+  if(ol[i]!=left||orr[i]!=right){
+   std::cerr<<"X3 PCM mismatch id="<<id<<" rate="<<rate<<" bits="<<(format==kSample32?32:64)
+            <<" sample="<<i<<" expected L="<<left<<" actual L="<<ol[i]<<"\n";
+   require(false,"all 55 X3 native hosted PCM must match independent research reference");
+  }
+ }
+ host.stop();
+}
 void exerciseX3(Module& module) {
  std::array<wchar_t,32768> directory{};
  const auto len=GetEnvironmentVariableW(L"ZPLANE_X3_BANK_DIR",directory.data(),
                                        static_cast<DWORD>(directory.size()));
- require(len>0&&len<directory.size(),"Actual X3 bank directory must be supplied by build");
- const auto factory=emux::FactoryBank::from_table_file(
-  (std::filesystem::path(directory.data())/"factory-bank.bin").string());
- Instance i(module);i.setup(kSample32);
- ParameterChanges changes;
- for(auto point:std::array<std::pair<ParamID,ParamValue>,3>{
-   std::pair<ParamID,ParamValue>{5,1./55.},
-   {1,.35},{2,.65}}) {
-  int32 slot=0;
-  auto* q=changes.addParameterData(point.first,slot);
-  require(q!=nullptr,"X3 mode/morph/Q host automation queue");
-  int32 index=0;
-  require(q->addPoint(0,point.second,index)==kResultOk,"X3 host automation point");
+ require(len>0&&len<directory.size(),"X3 original bank directory required");
+ const auto root=std::filesystem::path(directory.data());
+ const auto factory=emux::FactoryBank::from_table_file((root/"factory-bank.bin").string());
+ const auto extended=emux::ExtendedBank::from_table_files(
+  (root/"standard-bank.bin").string(),(root/"morph-support.bin").string());
+ unsigned tested=0;
+ for(unsigned rate:{44100u,48000u,96000u,192000u}){
+  for(unsigned id=1;id<=55;++id){
+   exerciseX3Mode<float>(module,id,rate,kSample32,factory,extended);
+   exerciseX3Mode<double>(module,id,rate,kSample64,factory,extended);
+   tested+=2;
+  }
  }
- std::array<float,256> il{},ir{},ol{},orr{};
- il[0]=.001f;ir[7]=-.001f;
- Sample32* ib[2]{il.data(),ir.data()},*ob[2]{ol.data(),orr.data()};
- AudioBusBuffers in{},out{};
- in.numChannels=out.numChannels=2;
- in.channelBuffers32=ib;out.channelBuffers32=ob;
- ProcessData pd{};
- pd.numSamples=256;pd.numInputs=pd.numOutputs=1;
- pd.inputs=&in;pd.outputs=&out;pd.symbolicSampleSize=kSample32;
- pd.processMode=kRealtime;pd.inputParameterChanges=&changes;
- require(i.audio->process(pd)==kResultOk,"X3 original bank native VST3 process");
- emux::Filter referenceL(factory.coefficients(0,.35f,.65f,48000));
- emux::Filter referenceR(factory.coefficients(0,.35f,.65f,48000));
- bool nonzero=false;
- for(int n=0;n<256;++n){
-  const float wl=referenceL.process_sample(il[n]),wr=referenceR.process_sample(ir[n]);
-  require(std::memcmp(&wl,&ol[n],4)==0,"X3 left PCM must equal original coefficient reference");
-  require(std::memcmp(&wr,&orr[n],4)==0,"X3 right PCM must equal original coefficient reference");
-  if(ol[n]!=0.f||orr[n]!=0.f)nonzero=true;
- }
- require(nonzero,"Original bank X3 sound must not be silent or dry fallback");
- i.stop();
- std::cout<<"Native packaged VST3 X3 original-bank stereo PCM bit-exact PASS\n";
+ std::cout<<"Native staged VST3 original-bank X3 modes: "<<tested
+          <<" stereo 32/64-bit render cases, 55 filters * 4 rates PASS\n";
 }
 #endif
 }
