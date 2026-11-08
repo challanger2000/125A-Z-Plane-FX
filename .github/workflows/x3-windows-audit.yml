@@ -68,6 +68,12 @@ jobs:
           $out=[ordered]@{status= $(if($exes.Count -gt 0){'EMULATORX_EXE_FOUND'}else{'EMULATORX_EXE_NOT_FOUND'});exe_matches_research_expected_hash=@($exes | Where-Object {$_.sha256 -eq $expectedNative}).Count -gt 0;expected_research_hash=$expectedNative;files=@($found);installed_program_present=($exes.Count -gt 0)}
           $out | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $report 'X3-FILES.json') -Encoding UTF8
           Write-Output ('X3 file identification: '+$out.status+'; matching expected research executable='+$out.exe_matches_research_expected_hash)
+          Write-Output ('X3 installed candidate count: '+$found.Count)
+          $found | Sort-Object name | ForEach-Object {
+            Write-Output ('X3_FILE '+$_.name+' | '+$_.size+' bytes | sha256 '+$_.sha256)
+          }
+          if ($exes.Count -eq 0) { throw 'No EmulatorX.exe found' }
+          if (-not $out.exe_matches_research_expected_hash) { throw 'EmulatorX.exe does not match research reference hash' }
       - name: Delete proprietary installer from temporary workspace
         if: always()
         shell: pwsh
