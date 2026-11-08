@@ -501,8 +501,12 @@ void exerciseX3LegacyFamilySwitch(Module& module,
  unsigned distinguishable=0;
  for(int n=0;n<kFrames;++n){
   float legacyL=0.f,legacyR=0.f;
-  legacy.process(&il[static_cast<std::size_t>(n)],&ir[static_cast<std::size_t>(n)],
-                 &legacyL,&legacyR,1);
+  // Once the 240-sample family fade has completed at frame 367,
+  // X3 owns the DSP output exclusively. The dormant Legacy filter
+  // MUST NOT accumulate hidden state until its re-entry at frame 512.
+  if(n<kToX3+kFade||n>=kToLegacy)
+   legacy.process(&il[static_cast<std::size_t>(n)],&ir[static_cast<std::size_t>(n)],
+                  &legacyL,&legacyR,1);
   float researchL=0.f,researchR=0.f;
   if(n>=kToX3){
    researchL=x3L.process_sample(il[static_cast<std::size_t>(n)]);
