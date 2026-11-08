@@ -96,6 +96,12 @@ public:
   }
  }
  bool hasBanks() const noexcept {return factory_&&extended_;}
+ // The host's callback partitioning must NOT decide when a queued
+ // coefficient transition starts. Give the outer processor the exact
+ // remaining sample count so it can end a segment at the transition.
+ std::uint32_t samplesToQueuedTransition() const noexcept {
+  return queued_&&left_>0?left_:UINT32_MAX;
+ }
  void reset() noexcept {
   primaryL_.reset();primaryR_.reset();nextL_.reset();nextR_.reset();
   left_=total_=mixRemaining_=0;queued_=initialized_=mixReady_=false;
@@ -160,7 +166,8 @@ public:
   }
  }
  void completeDeferred() {
-  // Called only at a host block boundary, never in inner sample loop.
+  // Called only after a sample-exact outer processing segment ends,
+  // never from inside the per-sample filter loop.
   if(!left_&&queued_){const auto request=pending_;queued_=false;start(request);}
  }
 };

@@ -222,7 +222,7 @@ public:
     }
     const auto next=event<timeline.size()?std::min(n,timeline[event].offset):n;
     if(next<=cursor)return kResultFalse;
-    const auto length=next-cursor;
+    auto length=next-cursor;
 #ifdef ZPLANE_WITH_X3_RESEARCH
     const auto requested=static_cast<unsigned>(std::min(55.,std::floor(params_[kX3Filter]*55.+0.5)));
     const bool useX3=requested>0;
@@ -248,6 +248,12 @@ public:
       renderX3=x3_.hasBanks();
      }
     }
+    // A pending X3 change begins immediately after the current 5-ms
+    // filter fade, at an absolute sample boundary independent of how the
+    // host partitions audio callbacks. Do NOT defer it to the next host
+    // block or unrelated parameter event (the previous source of errors).
+    if(renderX3)
+     length=std::min(length,x3_.samplesToQueuedTransition());
     if(data.symbolicSampleSize==kSample32)
      renderFamilies(in.channelBuffers32[0]+cursor,in.channelBuffers32[1]+cursor,
                     out.channelBuffers32[0]+cursor,out.channelBuffers32[1]+cursor,
@@ -266,7 +272,7 @@ public:
                   out.channelBuffers64[0]+cursor,out.channelBuffers64[1]+cursor,length);
     }
 #endif
-    cursor=next;
+    cursor+=length;
   }
   // An event at offset n defines the state for the following callback.
   while(event<timeline.size()){
