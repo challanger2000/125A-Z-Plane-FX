@@ -6,11 +6,14 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <windows.h>
 #define REQUIRE(x) do{if(!(x)){std::fprintf(stderr,"REAL X3 ADAPTER FAIL %s at line %d\n",#x,__LINE__);return EXIT_FAILURE;}}while(false)
 int main() {
- const char* dir=std::getenv("ZPLANE_X3_BANK_DIR");
- REQUIRE(dir&&*dir);
- const std::filesystem::path root=std::filesystem::u8path(dir);
+ std::array<wchar_t,32768> buffer{};
+ const auto len=GetEnvironmentVariableW(L"ZPLANE_X3_BANK_DIR",buffer.data(),
+                  static_cast<DWORD>(buffer.size()));
+ REQUIRE(len>0&&len<buffer.size());
+ const std::filesystem::path root(buffer.data());
  zplane::X3ResearchAdapter plugin;
  std::string error;
  REQUIRE(plugin.load(root,error));
