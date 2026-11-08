@@ -16,6 +16,9 @@
 #include <filesystem>
 #include <iostream>
 #include <vector>
+#ifdef ZPLANE_WITH_X3_RESEARCH
+#include "emux_filters.hpp"
+#endif
 
 using namespace Steinberg;
 using namespace Steinberg::Vst;
@@ -175,12 +178,57 @@ void exercise(Module& module,int32 format){
  require(restored.component->setState(&corrupt)!=kResultOk,"Truncated processor recall rejection");
  restored.stop();i.stop();
 }
+#ifdef ZPLANE_WITH_X3_RESEARCH
+void exerciseX3(Module& module) {
+ const char* env=std::getenv("ZPLANE_X3_BANK_DIR");
+ require(env&&*env,"Actual X3 bank directory must be supplied by build");
+ const auto factory=emux::FactoryBank::from_table_file(
+  (std::filesystem::u8path(env)/"factory-bank.bin").string());
+ Instance i(module);i.setup(kSample32);
+ ParameterChanges changes;
+ for(auto point:std::array<std::pair<ParamID,ParamValue>,3>{
+   std::pair<ParamID,ParamValue>{5,1./55.},
+   {1,.35},{2,.65}}) {
+  int32 slot=0;
+  auto* q=changes.addParameterData(point.first,slot);
+  require(q!=nullptr,"X3 mode/morph/Q host automation queue");
+  int32 index=0;
+  require(q->addPoint(0,point.second,index)==kResultOk,"X3 host automation point");
+ }
+ std::array<float,256> il{},ir{},ol{},orr{};
+ il[0]=.001f;ir[7]=-.001f;
+ Sample32* ib[2]{il.data(),ir.data()},*ob[2]{ol.data(),orr.data()};
+ AudioBusBuffers in{},out{};
+ in.numChannels=out.numChannels=2;
+ in.channelBuffers32=ib;out.channelBuffers32=ob;
+ ProcessData pd{};
+ pd.numSamples=256;pd.numInputs=pd.numOutputs=1;
+ pd.inputs=&in;pd.outputs=&out;pd.symbolicSampleSize=kSample32;
+ pd.processMode=kRealtime;pd.inputParameterChanges=&changes;
+ require(i.audio->process(pd)==kResultOk,"X3 original bank native VST3 process");
+ emux::Filter referenceL(factory.coefficients(0,.35f,.65f,48000));
+ emux::Filter referenceR(factory.coefficients(0,.35f,.65f,48000));
+ bool nonzero=false;
+ for(int n=0;n<256;++n){
+  const float wl=referenceL.process_sample(il[n]),wr=referenceR.process_sample(ir[n]);
+  require(std::memcmp(&wl,&ol[n],4)==0,"X3 left PCM must equal original coefficient reference");
+  require(std::memcmp(&wr,&orr[n],4)==0,"X3 right PCM must equal original coefficient reference");
+  if(ol[n]!=0.f||orr[n]!=0.f)nonzero=true;
+ }
+ require(nonzero,"Original bank X3 sound must not be silent or dry fallback");
+ i.stop();
+ std::cout<<"Native packaged VST3 X3 original-bank stereo PCM bit-exact PASS\n";
+}
+#endif
 }
 int main(int argc,char** argv){
  require(argc==2,"Expected packaged VST3 binary path");
  Module module{std::filesystem::path(argv[1])};
  exercise(module,kSample32);
  exercise(module,kSample64);
+#ifdef ZPLANE_WITH_X3_RESEARCH
+ exerciseX3(module);
+#endif
  std::cout<<"NATIVE HOST PASS: factory, stereo PCM, timed bypass, float/double, fresh recall, corrupt-state rejection\n";
  return 0;
 }
