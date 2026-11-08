@@ -9,6 +9,10 @@
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include "public.sdk/source/main/pluginfactory.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "base/source/fstreamer.h"
@@ -207,9 +211,33 @@ public:
 class Controller final : public EditController, public VSTGUI::VST3EditorDelegate {
 public:
  IPlugView* PLUGIN_API createView(FIDString name) override {
-  if(name&&std::strcmp(name,ViewType::kEditor)==0)
-   return new VSTGUI::VST3Editor(this,"ZPlaneMain","ZPlane.uidesc");
-  return nullptr;
+  if(!name||std::strcmp(name,ViewType::kEditor)!=0)return nullptr;
+  // The SDK's Win32 resource resolver may point at the host executable.
+  // Resolve the UI beside THIS plugin module, not the DAW working directory.
+  static const std::string uiPath=[]() -> std::string {
+   HMODULE module=nullptr;
+   if(!GetModuleHandleExW(
+      GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+      reinterpret_cast<LPCWSTR>(&Controller::createInstance),&module)||!module)return {};
+   std::wstring dllPath(32768,L'\\0');
+   const auto size=GetModuleFileNameW(module,dllPath.data(),
+                                      static_cast<DWORD>(dllPath.size()));
+   if(size==0||size>=dllPath.size())return {};
+   dllPath.resize(size);
+   const auto ui=std::filesystem::path(dllPath).parent_path().parent_path()
+                     /"Resources"/"ZPlane.uidesc";
+   if(!std::filesystem::exists(ui))return {};
+   const std::wstring path=ui.wstring();
+   const auto needed=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
+                   path.c_str(),static_cast<int>(path.size()),nullptr,0,nullptr,nullptr);
+   if(needed<=0)return {};
+   std::string utf8(static_cast<std::size_t>(needed),'\\0');
+   if(WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
+      path.c_str(),static_cast<int>(path.size()),utf8.data(),needed,nullptr,nullptr)!=needed)return {};
+   return utf8;
+  }();
+  if(uiPath.empty())return nullptr;
+  return new VSTGUI::VST3Editor(this,"ZPlaneMain",uiPath.c_str());
  }
  static FUnknown* createInstance(void*){return static_cast<IEditController*>(new Controller());}
  tresult PLUGIN_API initialize(FUnknown* context) override {
