@@ -1,0 +1,92 @@
+name: X3 Z-Plane original-reference filter validation
+on:
+  push:
+    paths:
+      - '.github/workflows/x3-filter-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-x3-filter-accuracy:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Get public research source and pinned private original X3 installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'x3-zplane'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          gh release download x3-test -R challanger2000/Freies-Repro -p 'Setup.Emulator.X3.x64.v3.0.0.exe' -D $root
+          if ($LASTEXITCODE -ne 0) { throw 'Private original release unavailable' }
+          $setup=Join-Path $root 'Setup.Emulator.X3.x64.v3.0.0.exe'
+          $sha=(Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne '639fdfe7d6e423853bce98471aa0c3e5af512ebd66553c47425c1cae66a59b1a') { throw 'X3 installer fingerprint mismatch' }
+          git clone --depth=1 https://github.com/noneofyourbisness/EMU-Emulator-X3-ZPlaneFilter-Research.git (Join-Path $root 'research-repo')
+          if ($LASTEXITCODE -ne 0) { throw 'Public research source unavailable' }
+          $archive=Join-Path $root 'research-repo/emulator-x3-filter-source.zip'
+          Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $root 'source') -Force
+          Write-Output 'Private original installer SHA256 PASS; public reference research source extracted'
+      - name: Install exact original X3 and verify expected native executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'x3-zplane'
+          $setup=Join-Path $root 'Setup.Emulator.X3.x64.v3.0.0.exe'
+          $nativeRoot='C:\Program Files\E-MU\Emulator X3'
+          # Original vendor installer; installation is authorized by the supplied private test release.
+          $args='/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR="C:\Program Files\E-MU\Emulator X3"'
+          $proc=Start-Process -FilePath $setup -ArgumentList $args -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw ('Original X3 installer failure '+$proc.ExitCode) }
+          $exe=Join-Path $nativeRoot 'EmulatorX.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw 'Installed EmulatorX.exe missing' }
+          $actual=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected='6f342c6057a8a0fb69f021a0da46adbab7f5a332139a2ee3a9506c9fa84e6914'
+          if ($actual -ne $expected) { throw 'Original native filter executable does not match research' }
+          Write-Output ('Exact supported EmulatorX.exe confirmed: '+$actual)
+      - name: Validate factory filters against original x64 instructions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'x3-zplane'
+          $source=Join-Path $root 'source'
+          $candidates=@(Get-ChildItem -LiteralPath $source -Recurse -File -Filter 'validate_port.py')
+          if ($candidates.Count -ne 1) { throw 'Unexpected research source layout' }
+          $base=$candidates[0].Directory.Parent.FullName
+          $env:X3_SOURCE_ROOT=$base
+          python -m pip install --disable-pip-version-check --target (Join-Path $base 'research/python-deps') 'unicorn==2.1.4' 'capstone==5.0.9' 'pefile==2024.8.26'
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned original-instruction emulator dependencies failed' }
+          Push-Location $base
+          try {
+            python research/validate_port.py
+            if ($LASTEXITCODE -ne 0) { throw 'Factory native original instruction comparison failed' }
+            python research/recover_extended.py
+            if ($LASTEXITCODE -ne 0) { throw 'Extended filter original extraction failed' }
+            python research/validate_extended.py
+            if ($LASTEXITCODE -ne 0) { throw 'Extended original instruction comparison failed' }
+          } finally { Pop-Location }
+          $reports=Join-Path $root 'reports'
+          New-Item -ItemType Directory -Path $reports -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $base 'validation.json') -Destination (Join-Path $reports 'factory-validation.json')
+          Copy-Item -LiteralPath (Join-Path $base 'extended-validation.json') -Destination (Join-Path $reports 'extended-validation.json')
+          $factory=Get-Content (Join-Path $reports 'factory-validation.json') -Raw | ConvertFrom-Json
+          $extended=Get-Content (Join-Path $reports 'extended-validation.json') -Raw | ConvertFrom-Json
+          if ($factory.coefficient_and_audio_cases -ne 924 -or $factory.packed_decoder_values_checked -ne 65536 -or $factory.maximum_absolute_audio_difference -ne 0) { throw 'Factory comparisons insufficient' }
+          if ($extended.coefficient_and_audio_cases -ne 3156 -or $extended.standard_filters -ne 17 -or $extended.programmable_filters -ne 5) { throw 'Extended comparisons insufficient' }
+          Write-Output ('X3 native filter validation PASS: factory '+$factory.coefficient_and_audio_cases+' cases, decoder '+$factory.packed_decoder_values_checked+', extended '+$extended.coefficient_and_audio_cases+' cases')
+      - name: Clean proprietary original files from runner workspace
+        if: always()
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'x3-zplane'
+          Remove-Item -LiteralPath (Join-Path $root 'Setup.Emulator.X3.x64.v3.0.0.exe') -Force -ErrorAction SilentlyContinue
+      - name: Keep only numerical comparison reports, never original binary or extracted banks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: X3-ZPlane-original-instruction-comparison-reports
+          path: ${{ runner.temp }}/x3-zplane/reports/*-validation.json
+          if-no-files-found: warn
+          retention-days: 2
