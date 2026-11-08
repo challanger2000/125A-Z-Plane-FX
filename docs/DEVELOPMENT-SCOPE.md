@@ -102,3 +102,11 @@ The stand-alone reconstruction tool at `tools/reconstruct_x3_banks.py` verifies 
 - The initial GUI-smoke implementation deliberately exposed a host-lifecycle gap: `IPlugView::getSize` after `attached` was 0×0 because the minimal test host never performed the required initial `onSize` callback. This is **not sufficient evidence of a plugin GUI failure** without the host callback. The test now performs a realistic `onSize` and asserts the actual frame dimensions and native child HWND.
 - [Windows Actions run 42525098913](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42525098913): **SUCCESS**. Native host attached the actual plugin editor to an HWND, resized to 900×470, confirmed a native child window, then cleanly detached it. CTests **6/6**, Steinberg Validator **47/47**, and **440 X3 filter host cases PASS**.
 - Further necessary GUI checks: individual controls' actual host edit traffic, visual pixel screenshot comparison, keyboard and accessibility behavior, resizing/zoom, and DAW graphics stress. No VSTGUI visual approval, no universal 125A FULL AUDIT, no ASIO realtime sign-off and no commercial release.
+
+## Original X3 wet/bypass and 64-bit dry correction — 2026-11-08
+
+- DSP source `src/X3ResearchAdapter.h` now performs 5 ms sample-by-sample fades for X3 Wet and Bypass, retargeting the ramp from the current mix. This corrects the previous abrupt full-buffer gain jump at host automation offsets.
+- The X3 path preserves **full-precision 64-bit dry PCM** when the wet amount reaches zero or bypass is engaged; previously float32 conversion silently quantized the otherwise unprocessed signal. Exact 100% wet PCM continues using the original X3 float reference.
+- `tests/X3RealAdapterTests.cpp` checks 48 kHz ramp completion at sample 240, partition-invariant processing of a 17+495-frame split, first-sample non-dry transition, and sample-for-sample 64-bit dry identity including sub-float32 precision.
+- [Windows Actions 42526858140](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42526858140): **SUCCESS**, 6/6 Release-mode CTests PASS, 47/47 Steinberg VST3 Validator PASS, packaged Windows native VST3 host and 440 X3 reference renders PASS.
+- This is **not** a full X3 automation, callback-allocation, ASIO realtime or 125A adversarial FULL AUDIT. These remain pending and are not silently marked as PASS.
