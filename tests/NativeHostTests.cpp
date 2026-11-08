@@ -147,6 +147,51 @@ void render(Instance& inst,int32 format,ParameterChanges* changes,bool verify){
            "Sample-accurate bypass and five-ms ramp");
  }
 }
+void exerciseDenseAutomation(Module& module) {
+ // Adversarial 4096 host events (the documented capacity). Exercise
+ // sample-time ordering with eight events per sample, independently of
+ // the six standalone CTests.
+ Instance host(module);
+ host.setup(kSample32);
+ std::array<float,512> inL{},inR{},outL{},outR{};
+ for(std::size_t n=0;n<inL.size();++n)inL[n]=n%2==0?.125f:-.125f;
+ Sample32* inputs[]{inL.data(),inR.data()};
+ Sample32* outputs[]{outL.data(),outR.data()};
+ AudioBusBuffers in{},out{};
+ in.numChannels=out.numChannels=2;
+ in.channelBuffers32=inputs;out.channelBuffers32=outputs;
+ ProcessData data{};
+ data.numSamples=512;
+ data.numInputs=data.numOutputs=1;
+ data.inputs=&in;data.outputs=&out;
+ data.symbolicSampleSize=kSample32;data.processMode=kRealtime;
+ ParameterChanges changes;
+ int32 index=0;
+ auto* wet=changes.addParameterData(3,index);
+ require(wet!=nullptr,"4096-event parameter queue");
+ for(int i=0;i<4096;++i){
+  int32 point=0;
+  const auto offset=i/8;
+  const auto normalized=(i%2)?0.99:0.01;
+  require(wet->addPoint(offset,normalized,point)==kResultOk,
+          "VST3 queue can hold dense events");
+ }
+ data.inputParameterChanges=&changes;
+ require(host.audio->process(data)==kResultOk,
+         "4096 densely automated edits must not overrun event timeline");
+ for(int i=0;i<512;++i)
+  require(std::isfinite(outL[static_cast<std::size_t>(i)])
+      &&outR[static_cast<std::size_t>(i)]==0.f,
+      "Dense automation must remain finite and stereo-separated");
+ // 4097 points must fail explicitly rather than silently discard
+ // parameter edits or run out of bounds.
+ auto* queue=changes.getParameterData(0);
+ int32 added=0;
+ require(queue->addPoint(511,.25,added)==kResultOk,"Overflow fixture");
+ require(host.audio->process(data)!=kResultOk,"Overflow must be reported");
+ host.stop();
+ std::cout<<"NATIVE HOST PASS: 4096 timed edits, finite PCM, overflow rejection\\n";
+}
 void exerciseAttachedEditor(Module& module) {
  // The previous smoke only queried the 900x470 dimensions. That cannot
  // catch malformed child-view definitions: actually attach the VSTGUI
@@ -320,6 +365,7 @@ int main(int argc,char** argv){
  Module module{std::filesystem::path(argv[1])};
  exercise(module,kSample32);
  exercise(module,kSample64);
+ exerciseDenseAutomation(module);
  exerciseAttachedEditor(module);
 #ifdef ZPLANE_WITH_X3_RESEARCH
  exerciseX3(module);
