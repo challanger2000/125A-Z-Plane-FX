@@ -3,7 +3,6 @@
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include "public.sdk/source/main/pluginfactory.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
-#include "pluginterfaces/vst/ivstspeaker.h"
 #include "base/source/fstreamer.h"
 #include <algorithm>
 #include <array>
