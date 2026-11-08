@@ -22,7 +22,7 @@ private:
 public:
  void clear() noexcept {size_=0;overflow_=false;}
  bool add(std::uint32_t offset,std::uint32_t param,double value) noexcept {
-  if(param>=5||!std::isfinite(value))return false;
+  if(param>=6||!std::isfinite(value))return false;
   if(size_==kCapacity){overflow_=true;return false;}
   // O(1) enqueue, rather than quadratic realtime insertion shifting.
   entries_[size_]={offset,param,value,static_cast<std::uint32_t>(size_)};

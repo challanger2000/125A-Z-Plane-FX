@@ -37,3 +37,14 @@ Prototype does not emulate X3 filter types, native coefficient tables, morph des
 - Verified code repair: automation collection is O(1) append and single O(N log N) final sort, with explicit same-timestamp event-order guarantee. Prior insertion strategy was O(N²) in worst case; dense descending-time synthetic test covers the formerly expensive path.
 - Verified code repair: no more `kInfiniteTail` for finite-decay IIR insert. `getTailSamples()` now reports conservative finite 30-second upper bound at the configured host sample rate; native test checks bounded tail metadata. This bound is **conservative and not an independent measured decay guarantee** under every coefficient combination; shorter accurate tail calculation is future work.
 - Native host also sends multiple different parameter queues with sample-offset values, and confirms existing 32-/64-bit sound, bypass/recall and malformed-state regression. Additional paced realtime stress, callback worst-case profiling, 125A Test Lab, the user's real DAW and the 55-filter reference integration remain NOT VERIFIED.
+
+## Experimental original X3 research adapter — November 8, 2026
+
+- The research archive supplied by the owner has been inventoried and inspected (SHA-256: `91062ac20281ef0892dc9bc9696df76106c259f60d4fa7fcff4175dc5c7f3b88`).
+- An opt-in nonrelease build uses the original public research headers during compilation without copying them into this Git repository.
+- The plugin exposes **55 numbered/named X3 modes** through new host parameter ID 5. Existing five parameter IDs remain stable. Component state v2 adds the sixth parameter; legacy v1 states remain readable.
+- The algorithmically reconstructed 33 factory, 17 standard and five programmable filter paths require the three independent **user-exported** banks `factory-bank.bin`, `standard-bank.bin` and `morph-support.bin`. These are not in the public research archive and are NOT bundled or re-extracted from any installer in this repository.
+- Default bank directory: `%LOCALAPPDATA%\125A\ZPlaneFX\Banks`. `ZPLANE_X3_BANK_DIR` can override it (testing/development).
+- With a missing bank or an unsupported sample rate, an X3 selection returns neutral dry audio rather than inventing a substitute filter. The prior four standard filters remain available under the first "Legacy Standard Filter" entry.
+- X3 frequency control maps to original normalized Morph, and resonance to normalized Q, not Hz and classic biquad Q. Five programmable modes currently have example programming configurations, not yet an editable Morph Designer.
+- A **research dependency without an explicit redistribution license** is not a commercial release dependency. The prototype is evaluation-only and must not be advertised or sold until permission/provenance is resolved.

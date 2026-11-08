@@ -151,7 +151,7 @@ void exercise(Module& module,int32 format){
  else render<double>(i,format,&changes,true);
  Steinberg::ResizableMemoryIBStream saved;
  require(i.component->getState(&saved)==kResultOk,"Component state save");
- require(saved.getCursor()==48,"Expected state v1 size");
+ require(saved.getCursor()==56,"Expected state v2 size");
  saved.rewind();
  require(i.controller->setComponentState(&saved)==kResultOk,"Controller project recall");
  require(i.controller->getParamNormalized(4)==1.,"Controller bypass matches processor");

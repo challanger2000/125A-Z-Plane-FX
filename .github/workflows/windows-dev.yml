@@ -27,12 +27,12 @@ jobs:
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S . -B build -A x64 -DBUILD_TESTING=ON -DZPLANE_BUILD_VST3=ON -DVST3_SDK_ROOT="$env:GITHUB_WORKSPACE/sdk"
+          cmake -S . -B build -A x64 -DBUILD_TESTING=ON -DZPLANE_BUILD_VST3=ON -DZPLANE_WITH_X3_RESEARCH=ON -DVST3_SDK_ROOT="$env:GITHUB_WORKSPACE/sdk"
           if ($LASTEXITCODE -ne 0) { throw 'Configuration failed' }
       - name: Build prototype, standalone tests and Steinberg Validator
         shell: pwsh
         run: |
-          cmake --build build --config Release --target ZPlaneFX zplane_core_tests zplane_automation_tests zplane_native_host_tests validator --parallel 2
+          cmake --build build --config Release --target ZPlaneFX zplane_core_tests zplane_automation_tests zplane_native_host_tests zplane_x3_adapter_tests validator --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'MSVC build failed' }
       - name: Actual Release-mode functional DSP tests
         shell: pwsh
