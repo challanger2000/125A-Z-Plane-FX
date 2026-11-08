@@ -527,6 +527,50 @@ void exerciseX3LegacyFamilySwitch(Module& module,
    ++distinguishable;
  }
  require(distinguishable>50,"Family-switch oracle must detect hard-switch mutation");
+ // A single long process block must equal a partitioned host timeline
+ // sample-for-sample. This catches the latent state-aging error where a
+ // family fade finishes inside a host segment and both DSP engines keep
+ // running until the *segment* ends, instead of stopping the inactive
+ // engine at the exact end of the 240-sample ramp.
+ Instance split(module);
+ split.setup(kSample32,48000.,kFrames);
+ std::array<float,kFrames> splitL{},splitR{};
+ for(const auto& [base,end] :
+     std::array<std::pair<int,int>,4>{{{0,256},{256,384},{384,640},{640,kFrames}}}) {
+  ParameterChanges partChanges;
+  int32 partSlot=0;
+  auto* partFilter=partChanges.addParameterData(5,partSlot);
+  require(partFilter!=nullptr,"Partitioned X3 family mode queue");
+  for(const auto& [globalOffset,mode] :
+      std::array<std::pair<int,double>,2>{{{kToX3,1./55.},{kToLegacy,0.}}}) {
+   if(globalOffset>=base&&globalOffset<end){
+    int32 partPoint=0;
+    require(partFilter->addPoint(globalOffset-base,mode,partPoint)==kResultOk,
+            "Partitioned host filter edit");
+   }
+  }
+  Sample32* partInput[]{il.data()+base,ir.data()+base};
+  Sample32* partOutput[]{splitL.data()+base,splitR.data()+base};
+  AudioBusBuffers partIn{},partOut{};
+  partIn.numChannels=partOut.numChannels=2;
+  partIn.channelBuffers32=partInput;partOut.channelBuffers32=partOutput;
+  ProcessData chunk{};
+  chunk.numSamples=end-base;chunk.numInputs=chunk.numOutputs=1;
+  chunk.inputs=&partIn;chunk.outputs=&partOut;
+  chunk.symbolicSampleSize=kSample32;chunk.processMode=kRealtime;
+  chunk.inputParameterChanges=&partChanges;
+  require(split.audio->process(chunk)==kResultOk,"Partitioned X3 family process");
+ }
+ for(int n=0;n<kFrames;++n) {
+  if(ol[static_cast<std::size_t>(n)]!=splitL[static_cast<std::size_t>(n)]||
+     orr[static_cast<std::size_t>(n)]!=splitR[static_cast<std::size_t>(n)]){
+   std::cerr<<"Family host partition mismatch at sample "<<n
+            <<" whole "<<ol[static_cast<std::size_t>(n)]
+            <<" split "<<splitL[static_cast<std::size_t>(n)]<<"\\n";
+   require(false,"Native family crossfade must be block-partition invariant");
+  }
+ }
+ split.stop();
  host.stop();
  std::cout<<"NATIVE HOST PASS: exact 5ms Legacy/X3/Legacy crossfades at 128/512\\n";
 }
