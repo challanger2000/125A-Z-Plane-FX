@@ -163,12 +163,17 @@ void exerciseAttachedEditor(Module& module) {
          "Win32 host platform must be supported");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "VSTGUI must attach and parse its child views");
+ // Simulate the VST3 host's documented onSize callback after it has
+ // allocated the editor HWND. The prior native probe never performed this
+ // host step, so the editor reported its initial 0x0 platform frame.
+ ViewRect requested{0,0,900,470};
+ require(view->onSize(&requested)==kResultOk,"Host initial editor onSize callback");
  ViewRect rect{};
  const auto sizeResult=view->getSize(&rect);
  std::cout<<"VSTGUI attached reported size: "<<rect.getWidth()<<" x "<<rect.getHeight()
           <<" result "<<sizeResult<<"\\n";
- require(sizeResult==kResultOk&&rect.getWidth()>0&&rect.getHeight()>0,
-         "VSTGUI attached canvas must remain nonzero");
+ require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==470,
+         "VSTGUI attached canvas must match host initial onSize");
  require(GetWindow(parent,GW_CHILD)!=nullptr,
          "Attached VSTGUI must create an actual native child window");
  require(view->removed()==kResultOk,"Clean VSTGUI detach");
