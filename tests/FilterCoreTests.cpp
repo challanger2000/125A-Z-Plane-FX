@@ -36,5 +36,18 @@ int main(){
  inL[0]=std::numeric_limits<float>::quiet_NaN();
  bad.process(inL.data(),inR.data(),outL.data(),outR.data(),256);
  REQUIRE(outL[0]==0.f);REQUIRE(std::isfinite(outL[1]));
- std::puts("FilterCore: active PCM and negative-value tests PASS");return EXIT_SUCCESS;
+ // Smooth bypass transition at 48k: 5 ms, with 0 and 100% exact endpoints.
+ StereoFilter smooth;
+ Settings hp{}; hp.mode=Mode::HighPass;hp.frequency=1000.;hp.wet=1.;
+ smooth.configure(48000.,hp);
+ std::array<double,1024> ones{},zeros{},wetL{},wetR{};
+ ones.fill(0.75);
+ smooth.process(ones.data(),zeros.data(),wetL.data(),wetR.data(),1024);
+ hp.bypass=true;smooth.configure(48000.,hp);
+ smooth.process(ones.data(),zeros.data(),wetL.data(),wetR.data(),1024);
+ REQUIRE(wetL[0]<0.75&&wetL[0]>-0.1);
+ REQUIRE(wetL[511]==0.75);
+ REQUIRE(wetL[1023]==0.75);
+ REQUIRE(wetR[1023]==0.);
+ std::puts("FilterCore: active PCM, bad-input and wet-ramp tests PASS");return EXIT_SUCCESS;
 }
