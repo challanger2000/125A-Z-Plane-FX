@@ -24,6 +24,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
 #include "FilterResponseView.h"
 
 namespace zplane {
@@ -466,6 +467,10 @@ public:
   return new FilterResponseView(VSTGUI::CRect(0.,0.,830.,178.),this);
  }
  IPlugView* PLUGIN_API createView(FIDString name) override {
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  std::fprintf(stderr,"[125A DIAG] Controller createView enter name=%s\n",name?name:"(null)");
+  std::fflush(stderr);
+#endif
   if(!name||std::strcmp(name,ViewType::kEditor)!=0)return nullptr;
   // The SDK's Win32 resource resolver may point at the host executable.
   // Resolve the UI beside THIS plugin module, not the DAW working directory.
@@ -492,10 +497,23 @@ public:
    return utf8;
   }();
   if(uiPath.empty())return nullptr;
-  return new VSTGUI::VST3Editor(this,"ZPlaneMain",uiPath.c_str());
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  std::fprintf(stderr,"[125A DIAG] Controller createView UI path resolved\n");
+  std::fflush(stderr);
+#endif
+  auto* editor=new VSTGUI::VST3Editor(this,"ZPlaneMain",uiPath.c_str());
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  std::fprintf(stderr,"[125A DIAG] Controller createView exit editor=%p\n",static_cast<void*>(editor));
+  std::fflush(stderr);
+#endif
+  return editor;
  }
  static FUnknown* createInstance(void*){return static_cast<IEditController*>(new Controller());}
  tresult PLUGIN_API initialize(FUnknown* context) override {
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  std::fprintf(stderr,"[125A DIAG] Controller initialize enter\n");
+  std::fflush(stderr);
+#endif
   const auto rc=EditController::initialize(context);if(rc!=kResultOk)return rc;
   auto* mode=new StringListParameter(STR16("Filter Shape"),kMode);
   mode->appendString(STR16("Low Pass"));mode->appendString(STR16("High Pass"));
@@ -858,6 +876,10 @@ public:
   parameters.addParameter(STR16("Morpheus Morph"),nullptr,0,defaults[8],ParameterInfo::kCanAutomate,kMorpheusMorph);
   parameters.addParameter(STR16("Morpheus Frequency"),nullptr,0,defaults[9],ParameterInfo::kCanAutomate,kMorpheusFreq);
   parameters.addParameter(STR16("Morpheus Transform"),nullptr,0,defaults[10],ParameterInfo::kCanAutomate,kMorpheusTransform);
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  std::fprintf(stderr,"[125A DIAG] Controller 11 legacy parameters registered\n");
+  std::fflush(stderr);
+#endif
   for(unsigned n=0;n<2;++n){
    const ParamID b=kLfo1On+n*6;
    const bool first=n==0;
@@ -874,7 +896,17 @@ public:
    target->appendString(STR16("Q / X3 Resonance"));
    parameters.addParameter(target);
    parameters.addParameter(first?STR16("LFO 1 Sync"):STR16("LFO 2 Sync"),nullptr,1,defaults[b+5],ParameterInfo::kCanAutomate,b+5);
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+   std::fprintf(stderr,"[125A DIAG] Controller LFO %u registered count=%u\n",n+1,
+     static_cast<unsigned>(parameters.getParameterCount()));
+   std::fflush(stderr);
+#endif
   }
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  std::fprintf(stderr,"[125A DIAG] Controller initialize exit count=%u\n",
+     static_cast<unsigned>(parameters.getParameterCount()));
+  std::fflush(stderr);
+#endif
   return kResultOk;
  }
  tresult PLUGIN_API setComponentState(IBStream* stream) override {
