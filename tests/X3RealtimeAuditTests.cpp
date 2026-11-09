@@ -141,6 +141,25 @@ int main() {
      return 1;
     }
    }
+   // 64-bit hosts may send double-finite values outside the float32
+   // domain of the historical X3 core. No cast-to-Inf may reach its IIR.
+   input64L.fill(std::numeric_limits<double>::max());
+   input64R.fill(-std::numeric_limits<double>::max());
+   x3.process(input64L.data(),input64R.data(),result64L.data(),result64R.data(),frames,1.,false);
+   for(unsigned n=0;n<frames;++n) {
+    if(!std::isfinite(result64L[n])||!std::isfinite(result64R[n])) {
+     std::fprintf(stderr,"X3 RT FAIL: 64-bit host cast overflow mode=%u rate=%u sample=%u\\n",id,rate,n);
+     return 1;
+    }
+   }
+   input64L.fill(0.);input64R.fill(0.);
+   input64L[0]=.0007;input64R[3]=-.0009;
+   x3.process(input64L.data(),input64R.data(),result64L.data(),result64R.data(),frames,1.,false);
+   for(unsigned n=0;n<frames;++n)
+    if(!std::isfinite(result64L[n])||!std::isfinite(result64R[n])) {
+     std::fprintf(stderr,"X3 RT FAIL: 64-bit recovery mode=%u rate=%u sample=%u\\n",id,rate,n);
+     return 1;
+    }
    inputL.fill(0.f);inputR.fill(0.f);
    inputL[0]=.001f;inputR[7]=-.001f;
    x3.process(inputL.data(),inputR.data(),resultL.data(),resultR.data(),frames,1.,false);

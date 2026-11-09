@@ -139,11 +139,24 @@ public:
    // request was silently lost if a fade ended mid-block.
    const Sample dryL=std::isfinite(static_cast<double>(inL[i]))?inL[i]:static_cast<Sample>(0);
    const Sample dryR=std::isfinite(static_cast<double>(inR[i]))?inR[i]:static_cast<Sample>(0);
-   const float a=static_cast<float>(dryL),b=static_cast<float>(dryR);
-   const float pa=primaryL_.process_sample(a),pb=primaryR_.process_sample(b);
+   // The external research core processes float32 even with 64-bit host
+   // buffers. A finite double > FLT_MAX can overflow during conversion;
+   // never pass infinity into stateful IIR sections. Dry/bypass retain
+   // the exact original host precision.
+   const float fa=static_cast<float>(dryL),fb=static_cast<float>(dryR);
+   const float a=std::isfinite(fa)?fa:0.f,b=std::isfinite(fb)?fb:0.f;
+   float pa=primaryL_.process_sample(a),pb=primaryR_.process_sample(b);
+   // Upstream finite-but-extreme samples can still overflow the research
+   // filter's INTERNAL float state. Reset only the affected channel and
+   // output zero wet PCM for the faulting sample. This is fixed-capacity,
+   // noexcept, allocation-free, and changes no ordinary valid audio.
+   if(!std::isfinite(pa)){primaryL_.reset();pa=0.f;}
+   if(!std::isfinite(pb)){primaryR_.reset();pb=0.f;}
    float wa=pa,wb=pb;
    if(left_){
-    const float na=nextL_.process_sample(a),nb=nextR_.process_sample(b);
+    float na=nextL_.process_sample(a),nb=nextR_.process_sample(b);
+    if(!std::isfinite(na)){nextL_.reset();na=0.f;}
+    if(!std::isfinite(nb)){nextR_.reset();nb=0.f;}
     const double phase=double(total_-left_+1)/double(total_);
     wa=static_cast<float>(pa+(na-pa)*phase);
     wb=static_cast<float>(pb+(nb-pb)*phase);
@@ -151,6 +164,10 @@ public:
      primaryL_=nextL_;primaryR_=nextR_;primary_=next_;
     }
    }
+   // Guard the crossfade itself: subtracting two finite but very large
+   // opposite-signed float values can overflow intermediate arithmetic.
+   if(!std::isfinite(wa)){primaryL_.reset();nextL_.reset();wa=0.f;}
+   if(!std::isfinite(wb)){primaryR_.reset();nextR_.reset();wb=0.f;}
    // At 100% wet, preserve the original float32 DSP output exactly.
    // A double-precision dry/wet subtraction+addition can otherwise
    // introduce a one-ULP difference for tiny impulses.
