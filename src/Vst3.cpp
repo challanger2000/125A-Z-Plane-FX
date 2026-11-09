@@ -24,7 +24,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
-#include <cstdio>
 #include "FilterResponseView.h"
 
 namespace zplane {
@@ -39,25 +38,6 @@ enum : ParamID { kMode=0,kCutoff=1,kQuality=2,kWet=3,kBypass=4,kX3Filter=5,
  kLfo2On=17,kLfo2Rate=18,kLfo2Depth=19,kLfo2Shape=20,kLfo2Target=21,kLfo2Sync=22 };
 constexpr DualLfo::Params defaults={0.,0.5,0.5,1.,0.,0.,0.,0.,0.5,0.5,0.5,
   0.,.5,0.,0.,.25,1., 0.,.5,0.,0.,.25,1.};
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-inline void traceControllerLifecycle(const char* message) noexcept {
- char directory[MAX_PATH]{};
- const auto size=GetTempPathA(MAX_PATH,directory);
- if(size==0||size>=MAX_PATH)return;
- std::string path(directory);
- path+="ZPLANE-CONTROLLER-DIAG.log";
- HANDLE file=CreateFileA(path.c_str(),FILE_APPEND_DATA,
-    FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
- if(file!=INVALID_HANDLE_VALUE){
-  DWORD wrote=0;
-  WriteFile(file,message,static_cast<DWORD>(std::strlen(message)),&wrote,nullptr);
-  WriteFile(file,"\r\n",2,&wrote,nullptr);
-  CloseHandle(file);
- }
-}
-#else
-inline void traceControllerLifecycle(const char*) noexcept {}
-#endif
 static double clampParam(double x) noexcept {return std::isfinite(x)?std::clamp(x,0.0,1.0):0.;}
 static Settings makeSettings(const DualLfo::Params& p) noexcept {
  Settings s;
@@ -482,8 +462,6 @@ public:
 };
 class Controller final : public EditController, public VSTGUI::VST3EditorDelegate {
 public:
- Controller(){traceControllerLifecycle("CONTROLLER constructed");}
- ~Controller() noexcept override {traceControllerLifecycle("CONTROLLER destructor");}
  VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr name,
       const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
       VSTGUI::VST3Editor*) override {
@@ -491,11 +469,6 @@ public:
   return new FilterResponseView(VSTGUI::CRect(0.,0.,830.,178.),this);
  }
  IPlugView* PLUGIN_API createView(FIDString name) override {
-  traceControllerLifecycle("CONTROLLER createView entry");
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  std::fprintf(stderr,"[125A DIAG] Controller createView enter name=%s\n",name?name:"(null)");
-  std::fflush(stderr);
-#endif
   if(!name||std::strcmp(name,ViewType::kEditor)!=0)return nullptr;
   // The SDK's Win32 resource resolver may point at the host executable.
   // Resolve the UI beside THIS plugin module, not the DAW working directory.
@@ -521,29 +494,13 @@ public:
       path.c_str(),static_cast<int>(path.size()),utf8.data(),needed,nullptr,nullptr)!=needed)return {};
    return utf8;
   }();
-  traceControllerLifecycle("CONTROLLER createView path evaluated");
   if(uiPath.empty())return nullptr;
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  std::fprintf(stderr,"[125A DIAG] Controller createView UI path resolved\n");
-  std::fflush(stderr);
-#endif
   auto* editor=new VSTGUI::VST3Editor(this,"ZPlaneMain",uiPath.c_str());
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  std::fprintf(stderr,"[125A DIAG] Controller createView exit editor=%p\n",static_cast<void*>(editor));
-  std::fflush(stderr);
-#endif
-  traceControllerLifecycle("CONTROLLER createView editor constructed");
   return editor;
  }
  static FUnknown* createInstance(void*){return static_cast<IEditController*>(new Controller());}
  tresult PLUGIN_API initialize(FUnknown* context) override {
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  std::fprintf(stderr,"[125A DIAG] Controller initialize enter\n");
-  std::fflush(stderr);
-#endif
-  traceControllerLifecycle("CONTROLLER initialize start");
   const auto rc=EditController::initialize(context);if(rc!=kResultOk)return rc;
-  traceControllerLifecycle("CONTROLLER base initialize returned");
   auto* mode=new StringListParameter(STR16("Filter Shape"),kMode);
   mode->appendString(STR16("Low Pass"));mode->appendString(STR16("High Pass"));
   mode->appendString(STR16("Band Pass"));mode->appendString(STR16("Notch"));
@@ -905,13 +862,7 @@ public:
   parameters.addParameter(STR16("Morpheus Morph"),nullptr,0,defaults[8],ParameterInfo::kCanAutomate,kMorpheusMorph);
   parameters.addParameter(STR16("Morpheus Frequency"),nullptr,0,defaults[9],ParameterInfo::kCanAutomate,kMorpheusFreq);
   parameters.addParameter(STR16("Morpheus Transform"),nullptr,0,defaults[10],ParameterInfo::kCanAutomate,kMorpheusTransform);
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  std::fprintf(stderr,"[125A DIAG] Controller 11 legacy parameters registered\n");
-  std::fflush(stderr);
-#endif
-  traceControllerLifecycle("CONTROLLER 11 prior params complete");
   for(unsigned n=0;n<2;++n){
-   traceControllerLifecycle(n==0?"LFO 1 registration entering":"LFO 2 registration entering");
    const ParamID b=kLfo1On+n*6;
    const bool first=n==0;
    parameters.addParameter(first?STR16("LFO 1 On"):STR16("LFO 2 On"),nullptr,1,defaults[b],ParameterInfo::kCanAutomate,b);
@@ -927,19 +878,7 @@ public:
    target->appendString(STR16("Q / X3 Resonance"));
    parameters.addParameter(target);
    parameters.addParameter(first?STR16("LFO 1 Sync"):STR16("LFO 2 Sync"),nullptr,1,defaults[b+5],ParameterInfo::kCanAutomate,b+5);
-   traceControllerLifecycle(n==0?"LFO 1 registered":"LFO 2 registered");
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-   std::fprintf(stderr,"[125A DIAG] Controller LFO %u registered count=%u\n",n+1,
-     static_cast<unsigned>(parameters.getParameterCount()));
-   std::fflush(stderr);
-#endif
   }
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  std::fprintf(stderr,"[125A DIAG] Controller initialize exit count=%u\n",
-     static_cast<unsigned>(parameters.getParameterCount()));
-  std::fflush(stderr);
-#endif
-  traceControllerLifecycle("CONTROLLER initialize complete");
   return kResultOk;
  }
  tresult PLUGIN_API setComponentState(IBStream* stream) override {

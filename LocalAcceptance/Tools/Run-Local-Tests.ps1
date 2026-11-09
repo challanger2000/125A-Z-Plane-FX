@@ -38,8 +38,9 @@ function RunExe([string]$label,[string]$file,[string[]]$argv,[string]$logname,[b
     if($code -ne 0){Verdict $label 'FAIL' ("Exit=$code, Log=$logname") $required;return $false}
     Verdict $label 'PASS' ("Exit=0, Log=$logname") $required;return $true
   } catch {
+    $message=$_.Exception.Message
     $_ | Out-String | Out-File -LiteralPath $log -Encoding UTF8
-    Verdict $label 'FAIL' ('Exception, Log='+$logname) $required
+    Verdict $label 'FAIL' ("Exception: $message, Log=$logname") $required
     return $false
   }
 }

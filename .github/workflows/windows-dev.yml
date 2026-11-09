@@ -67,25 +67,9 @@ jobs:
           if ($head[0] -ne 77 -or $head[1] -ne 90) { throw 'Not a Windows PE file' }
           $validator=Get-ChildItem -Path build -Recurse -File -Filter validator.exe | Select-Object -First 1
           if (-not $validator) { throw 'Official Steinberg validator unavailable' }
-          # Early process-level differential diagnosis: the native host creates the
-          # controller and editor before validator, catching lifecycle corruption.
-          $native='build/Release/zplane_native_host_tests.exe'
-          if (Test-Path $native) {
-            Write-Host 'DIAG: native embedded host before Steinberg validator'
-            & $native $binary '--embedded-smoke'
-            Write-Host "DIAG: native host exit=$LASTEXITCODE"
-            if (Test-Path 'ZPLANE-CONTROLLER-DIAG.log') {
-              Get-Content 'ZPLANE-CONTROLLER-DIAG.log' | Select-Object -Last 100
-            }
-          }
           & $validator.FullName (Resolve-Path 'artifact/125A Z-Plane FX.vst3').Path
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Validator diagnostic temp path: $env:TEMP"
-            $diag=Join-Path $env:TEMP 'ZPLANE-CONTROLLER-DIAG.log'
-            if (Test-Path $diag) { Get-Content -Path $diag }
-            Get-ChildItem -Path '.' -File -Recurse -Filter 'ZPLANE-CONTROLLER-DIAG.log' -ErrorAction SilentlyContinue | ForEach-Object { Get-Content -LiteralPath $_.FullName }
-            throw "Steinberg Validator failed on final staged bundle, exit=$LASTEXITCODE"
-          }
+          if ($LASTEXITCODE -ne 0) { throw "Steinberg Validator failed on final staged bundle, exit=$LASTEXITCODE" }
+
       - name: Native packaged host audio, automation and recall
         shell: pwsh
         run: |
