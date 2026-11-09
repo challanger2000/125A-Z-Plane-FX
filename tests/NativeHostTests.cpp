@@ -1421,6 +1421,72 @@ void exercisePacedX3(Module& module) {
  if(timerPeriodStatus==TIMERR_NOERROR)timeEndPeriod(1);
  host.stop();
 }
+template<typename Sample>
+void testEmbeddedModes(Module& module,unsigned rate,int32 precision) {
+ // This test deliberately DOES NOT consult the original research files.
+ // The exact staged VST3 must load its own bank resources from its DLL,
+ // otherwise processor initialization fails, or wet audio stays dry.
+ Instance host(module);
+ host.setup(precision,static_cast<double>(rate),2048);
+ constexpr unsigned frames=2048;
+ std::array<Sample,frames> il{},ir{},ol{},orr{};
+ for(unsigned i=0;i<frames;++i){
+  const double phase=static_cast<double>(i)/static_cast<double>(rate);
+  il[i]=static_cast<Sample>(0.08*std::sin(2.*3.141592653589793*317.*phase)+
+                            (i%101==0?0.05:0.0));
+  ir[i]=static_cast<Sample>(0.07*std::cos(2.*3.141592653589793*727.*phase)-
+                            (i%79==0?0.04:0.0));
+ }
+ Sample* input[]{il.data(),ir.data()};
+ Sample* output[]{ol.data(),orr.data()};
+ AudioBusBuffers in{},out{};
+ in.numChannels=out.numChannels=2;
+ if(precision==kSample32){
+  in.channelBuffers32=reinterpret_cast<Sample32**>(input);
+  out.channelBuffers32=reinterpret_cast<Sample32**>(output);
+ }else{
+  in.channelBuffers64=reinterpret_cast<Sample64**>(input);
+  out.channelBuffers64=reinterpret_cast<Sample64**>(output);
+ }
+ ProcessData data{};
+ data.numSamples=frames;data.numInputs=data.numOutputs=1;
+ data.inputs=&in;data.outputs=&out;
+ data.symbolicSampleSize=precision;data.processMode=kRealtime;
+ for(unsigned id=1;id<=55;++id){
+  ParameterChanges changes;
+  int32 queue=0,index=0;
+  auto* choice=changes.addParameterData(5,queue);
+  require(choice&&choice->addPoint(0,static_cast<double>(id)/55.,index)==kResultOk,
+          "Embedded X3 selector automation");
+  data.inputParameterChanges=&changes;
+  require(host.audio->process(data)==kResultOk,
+          "Embedded VST3 X3 mode render without external banks");
+  double changed=0.,maxAbs=0.;
+  for(unsigned i=frames/2;i<frames;++i){
+   const auto vl=static_cast<double>(ol[i]),vr=static_cast<double>(orr[i]);
+   require(std::isfinite(vl)&&std::isfinite(vr),
+           "Embedded X3 output finite");
+   changed+=std::abs(vl-static_cast<double>(il[i]))+
+            std::abs(vr-static_cast<double>(ir[i]));
+   maxAbs=std::max({maxAbs,std::abs(vl),std::abs(vr)});
+  }
+  if(changed<=0.00001||maxAbs<=0.0000001){
+   std::cerr<<"Embedded standalone X3 mode not audible: filter="<<id
+            <<" rate="<<rate<<" bits="<<(precision==kSample32?32:64)
+            <<" delta="<<changed<<" max="<<maxAbs<<"\n";
+   require(false,"Embedded 55 X3 filters must not silently return dry/silent");
+  }
+ }
+ host.stop();
+}
+void exerciseSelfContainedX3(Module& module) {
+ for(unsigned rate:{44100u,48000u,96000u,192000u}){
+  testEmbeddedModes<float>(module,rate,kSample32);
+  testEmbeddedModes<double>(module,rate,kSample64);
+ }
+ std::cout<<"EMBEDDED X3 STANDALONE PASS: 55 modes * 4 rates * 2 sample precisions = "
+          <<"440 wet non-dry real VST3 renders with no user bank files\n";
+}
 void exerciseX3(Module& module) {
  std::array<wchar_t,32768> directory{};
  const auto len=GetEnvironmentVariableW(L"ZPLANE_X3_BANK_DIR",directory.data(),
@@ -1461,8 +1527,17 @@ void exerciseX3(Module& module) {
 #endif
 }
 int main(int argc,char** argv){
- require(argc==2,"Expected packaged VST3 binary path");
+ require(argc==2||(argc==3&&std::strcmp(argv[2],"--embedded-smoke")==0),
+         "Expected packaged VST3 binary path with optional --embedded-smoke");
  Module module{std::filesystem::path(argv[1])};
+#ifdef ZPLANE_WITH_X3_RESEARCH
+ if(argc==3){
+  exerciseSelfContainedX3(module);
+  return 0;
+ }
+#else
+ require(argc==2,"Embedded X3 test requires research engine");
+#endif
  exercise(module,kSample32);
  exercise(module,kSample64);
  exerciseDenseAutomation(module);
