@@ -84,12 +84,12 @@ jobs:
           # Pin the reviewed source COMMIT, not the moving branch HEAD:
           # subsequent fixture/documentation commits must not silently
           # change the binary tested here or block this already approved pin.
-          git -C lab fetch --depth 1 origin 66ec829f3242e6f84a5ed2b3fef0c35bb4bc7960
+          git -C lab fetch --depth 1 origin 9d7adcc809b3f8cc4c5a7210213c7e549cd55b9a
           if ($LASTEXITCODE -ne 0) { throw 'Immutable Test Lab source SHA fetch failed' }
-          git -C lab checkout --detach 66ec829f3242e6f84a5ed2b3fef0c35bb4bc7960
+          git -C lab checkout --detach 9d7adcc809b3f8cc4c5a7210213c7e549cd55b9a
           if ($LASTEXITCODE -ne 0) { throw 'Immutable Test Lab source checkout failed' }
           $labSha=(git -C lab rev-parse HEAD).Trim()
-          if ($labSha -ne '66ec829f3242e6f84a5ed2b3fef0c35bb4bc7960') {
+          if ($labSha -ne '9d7adcc809b3f8cc4c5a7210213c7e549cd55b9a') {
             throw "Unreviewed Test Lab version $labSha"
           }
           cmake -S lab -B lab-build -A x64 -DFETCHCONTENT_SOURCE_DIR_VST3SDK="$env:GITHUB_WORKSPACE/sdk"
