@@ -39,7 +39,7 @@ jobs:
       - name: Build prototype, standalone tests and Steinberg Validator
         shell: pwsh
         run: |
-          cmake --build build --config Release --target ZPlaneFX zplane_core_tests zplane_automation_tests zplane_native_host_tests zplane_x3_adapter_tests zplane_x3_real_adapter_tests zplane_x3_original_factory_reference zplane_x3_original_extended_reference validator --parallel 2
+          cmake --build build --config Release --target ZPlaneFX zplane_core_tests zplane_automation_tests zplane_native_host_tests zplane_x3_adapter_tests zplane_x3_real_adapter_tests zplane_x3_realtime_audit_tests zplane_x3_original_factory_reference zplane_x3_original_extended_reference validator --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'MSVC build failed' }
       - name: Actual Release-mode functional DSP tests
         shell: pwsh

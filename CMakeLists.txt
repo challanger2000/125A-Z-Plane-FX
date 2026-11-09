@@ -83,6 +83,17 @@ if(ZPLANE_BUILD_VST3)
     target_compile_options(zplane_x3_real_adapter_tests PRIVATE /W4 /WX /fp:strict)
    endif()
    add_test(NAME zplane_x3_real_adapter_tests COMMAND zplane_x3_real_adapter_tests)
+   # Independent C++ heap/exception probe for the real-bank research DSP
+   # compiled directly into this executable (not an ASIO certificate).
+   add_executable(zplane_x3_realtime_audit_tests tests/X3RealtimeAuditTests.cpp)
+   target_include_directories(zplane_x3_realtime_audit_tests PRIVATE
+     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+     "${CMAKE_BINARY_DIR}/third_party_research/emulator-x3-filters")
+   target_compile_features(zplane_x3_realtime_audit_tests PRIVATE cxx_std_23)
+   if(MSVC)
+     target_compile_options(zplane_x3_realtime_audit_tests PRIVATE /W4 /WX /fp:strict)
+   endif()
+   add_test(NAME zplane_x3_realtime_audit_tests COMMAND zplane_x3_realtime_audit_tests)
    set(_X3ResearchPath "${CMAKE_BINARY_DIR}/third_party_research/emulator-x3-filters")
    add_executable(zplane_x3_original_factory_reference "${_X3ResearchPath}/research/check_cpp.cpp")
    add_executable(zplane_x3_original_extended_reference "${_X3ResearchPath}/research/check_extended.cpp")
