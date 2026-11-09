@@ -29,6 +29,10 @@ inline std::atomic<std::uint64_t> created{0},drawn{0},updated{0},curveSignature{
 #endif
 class FilterResponseView final : public VSTGUI::CView {
  Steinberg::Vst::EditController* controller_{};
+ const std::atomic<double>* hostRate_{};
+ const std::atomic<bool>* hostRateKnown_{};
+ double sampleRate_{response::kRate};
+ bool actualRate_{false};
  response::Params parameters_{};
  response::Curve db_{};
  bool haveParameters_{false},valid_{false};
@@ -73,13 +77,16 @@ class FilterResponseView final : public VSTGUI::CView {
   }
  }
  bool refreshX3() {
-  if(!x3Available_||!x3_)return false;
+  if(!x3Available_||!x3_||
+     sampleRate_>static_cast<double>(std::numeric_limits<unsigned>::max()))return false;
   const auto index=static_cast<unsigned>(
     std::clamp(std::floor(response::clamp01(parameters_[5])*55.+.5),0.,55.));
   if(index==0)return false;
   x3_->reset();
+  const auto rounded=static_cast<unsigned>(std::llround(sampleRate_));
+  if(std::abs(sampleRate_-rounded)>.01)return false;
   if(!x3_->set(index,static_cast<float>(response::clamp01(parameters_[1])),
-                       static_cast<float>(response::clamp01(parameters_[2])),48000u))
+                       static_cast<float>(response::clamp01(parameters_[2])),rounded))
     return false;
   std::fill(input_.begin(),input_.end(),0.f);
   std::fill(output_.begin(),output_.end(),0.f);
@@ -92,7 +99,12 @@ class FilterResponseView final : public VSTGUI::CView {
   }
   fft(spectrum_);
   for(std::size_t i=0;i<db_.size();++i){
-   const auto bin=response::frequency(i)*kFftSize/response::kRate;
+   const auto hz=response::frequency(i);
+   if(hz>=sampleRate_*.5){
+    db_[i]=std::numeric_limits<float>::quiet_NaN();
+    continue;
+   }
+   const auto bin=hz*kFftSize/sampleRate_;
    const auto lo=std::min(static_cast<std::size_t>(bin),kFftSize/2-1);
    const auto alpha=std::clamp(bin-lo,0.,1.);
    const auto h=spectrum_[lo]*(1.-alpha)+spectrum_[lo+1]*alpha;
@@ -107,9 +119,14 @@ class FilterResponseView final : public VSTGUI::CView {
   for(std::size_t i=0;i<next.size();++i)
    next[i]=response::clamp01(controller_->getParamNormalized(
        static_cast<Steinberg::Vst::ParamID>(i)));
-  if(haveParameters_&&next==parameters_)return;
+  const bool known=hostRateKnown_&&hostRateKnown_->load(std::memory_order_acquire);
+  const auto reported=known&&hostRate_?hostRate_->load(std::memory_order_relaxed):response::kRate;
+  const auto newRate=std::isfinite(reported)&&reported>0.?reported:response::kRate;
+  if(haveParameters_&&next==parameters_&&sampleRate_==newRate&&actualRate_==known)return;
   haveParameters_=true;
   parameters_=next;
+  sampleRate_=newRate;
+  actualRate_=known;
   valid_=false;
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
   response_qa::updated.fetch_add(1,std::memory_order_relaxed);
@@ -125,14 +142,17 @@ class FilterResponseView final : public VSTGUI::CView {
   }else
 #endif
   {
-   db_=response::computeAnalytic(parameters_,valid_);
+   db_=response::computeAnalytic(parameters_,valid_,sampleRate_);
   }
   invalid();
  }
 public:
  explicit FilterResponseView(const VSTGUI::CRect& rect,
-                             Steinberg::Vst::EditController* controller)
-   : VSTGUI::CView(rect),controller_(controller) {
+                             Steinberg::Vst::EditController* controller,
+                             const std::atomic<double>* hostRate,
+                             const std::atomic<bool>* hostRateKnown)
+   : VSTGUI::CView(rect),controller_(controller),hostRate_(hostRate),
+     hostRateKnown_(hostRateKnown) {
   setMouseEnabled(false);
 #ifdef ZPLANE_WITH_X3_RESEARCH
   x3_=std::make_unique<X3ResearchAdapter>();
@@ -175,7 +195,11 @@ public:
    context->drawLine(VSTGUI::CPoint(x,top),VSTGUI::CPoint(x,bottom));
   }
   context->setFontColor(VSTGUI::CColor{160,178,192});
-  context->drawString("FILTER RESPONSE  |  48 kHz reference",VSTGUI::CPoint(left,top-9.));
+  char rateLabel[96]{};
+  std::snprintf(rateLabel,sizeof(rateLabel),
+      actualRate_?"FILTER RESPONSE  |  %.2f kHz host":
+                  "FILTER RESPONSE  |  %.2f kHz reference",sampleRate_/1000.);
+  context->drawString(rateLabel,VSTGUI::CPoint(left,top-9.));
   context->drawString("+24",VSTGUI::CPoint(bounds.left+5.,top+5.));
   context->drawString("0",VSTGUI::CPoint(bounds.left+17.,bottom-height*2./3.+5.));
   context->drawString("-48",VSTGUI::CPoint(bounds.left+5.,bottom));
@@ -191,6 +215,7 @@ public:
   context->setFrameColor(VSTGUI::CColor{112,220,172});
   context->setLineWidth(2.);
   for(std::size_t i=1;i<db_.size();++i){
+   if(!std::isfinite(db_[i-1])||!std::isfinite(db_[i]))continue;
    const auto previous=std::clamp(static_cast<double>(db_[i-1]),-48.,24.);
    const auto current=std::clamp(static_cast<double>(db_[i]),-48.,24.);
    const auto x1=left+width*static_cast<double>(i-1)/(db_.size()-1);
@@ -204,7 +229,8 @@ public:
   // drawLine(), not the unreliable GDI BitBlt of a Direct2D surface.
   std::uint64_t signature=14695981039346656037ull;
   for(const auto db:db_){
-   const auto scaled=std::clamp(std::lround(db*1000.f),-48000l,24000l);
+   const auto scaled=std::isfinite(db)?
+      std::clamp(std::lround(db*1000.f),-48000l,24000l):std::numeric_limits<std::int32_t>::min();
    signature^=static_cast<std::uint32_t>(scaled);
    signature*=1099511628211ull;
   }

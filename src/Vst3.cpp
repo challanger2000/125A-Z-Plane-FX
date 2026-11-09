@@ -18,6 +18,8 @@
 #include "public.sdk/source/main/pluginfactory.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
+#include "pluginterfaces/vst/ivstmessage.h"
+#include "pluginterfaces/vst/ivstattributes.h"
 #include "base/source/fstreamer.h"
 #include <algorithm>
 #include <array>
@@ -32,6 +34,9 @@ using namespace Steinberg::Vst;
 static const FUID kProcessor(0x3E858CA1,0xF71C4BC2,0xAA13012B,0xD7EE4561);
 static const FUID kController(0x8577FE18,0x947B4E20,0xA4CB7205,0xC3F2A019);
 constexpr uint32 kMagic=0x3150585Au;
+// VST3 control-thread-only notification for the response preview.
+constexpr char kDisplayRateMessage[]="125A.ZPlane.DisplayRate";
+constexpr char kDisplayRateAttribute[]="Hz";
 enum : ParamID { kMode=0,kCutoff=1,kQuality=2,kWet=3,kBypass=4,kX3Filter=5,
  kMorpheusOn=6,kMorpheusCube=7,kMorpheusMorph=8,kMorpheusFreq=9,kMorpheusTransform=10,
  kLfo1On=11,kLfo1Rate=12,kLfo1Depth=13,kLfo1Shape=14,kLfo1Target=15,kLfo1Sync=16,
@@ -215,7 +220,23 @@ class Processor final : public AudioEffect {
   return false;
  }
  double rate_{48000.};
+ // No message allocation or dispatch in the realtime process() path.
+ void sendDisplayRate() {
+  if(!getPeer())return;
+  auto* message=allocateMessage();
+  if(!message)return;
+  message->setMessageID(kDisplayRateMessage);
+  if(auto* attributes=message->getAttributes())
+   if(attributes->setFloat(kDisplayRateAttribute,rate_)==kResultOk)
+    (void)sendMessage(message);
+  message->release();
+ }
 public:
+ tresult PLUGIN_API connect(IConnectionPoint* other) override {
+  const auto rc=AudioEffect::connect(other);
+  if(rc==kResultOk)sendDisplayRate();
+  return rc;
+ }
  Processor(){
   setControllerClass(kController);
   for(std::size_t i=0;i<defaults.size();++i)
@@ -259,6 +280,7 @@ public:
   const auto rc=AudioEffect::setupProcessing(setup);
   if(rc==kResultOk){
    rate_=setup.sampleRate;
+   sendDisplayRate(); // setupProcessing is on the host control thread
    effectiveCutoff_=params_[kCutoff];effectiveQ_=params_[kQuality];
    freeSamples_=0;fallbackBeats_=0.;
    dsp_.reset();
@@ -461,12 +483,29 @@ public:
  }
 };
 class Controller final : public EditController, public VSTGUI::VST3EditorDelegate {
+ std::atomic<double> displayRate_{response::kRate};
+ std::atomic<bool> displayRateKnown_{false};
 public:
+ tresult PLUGIN_API notify(IMessage* message) override {
+  if(message&&message->getMessageID()&&
+     std::strcmp(message->getMessageID(),kDisplayRateMessage)==0){
+   double rate=0.;
+   auto* attributes=message->getAttributes();
+   if(!attributes||
+      attributes->getFloat(kDisplayRateAttribute,rate)!=kResultOk||
+      !std::isfinite(rate)||rate<=0.)return kInvalidArgument;
+   displayRate_.store(rate,std::memory_order_relaxed);
+   displayRateKnown_.store(true,std::memory_order_release);
+   return kResultOk;
+  }
+  return EditController::notify(message);
+ }
  VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr name,
       const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
       VSTGUI::VST3Editor*) override {
   if(!name||std::strcmp(name,"125AFilterResponse")!=0)return nullptr;
-  return new FilterResponseView(VSTGUI::CRect(0.,0.,830.,178.),this);
+  return new FilterResponseView(VSTGUI::CRect(0.,0.,830.,178.),this,
+                                &displayRate_,&displayRateKnown_);
  }
  IPlugView* PLUGIN_API createView(FIDString name) override {
   if(!name||std::strcmp(name,ViewType::kEditor)!=0)return nullptr;

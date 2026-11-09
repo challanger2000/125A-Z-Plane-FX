@@ -1,7 +1,6 @@
 #pragma once
 // GUI-thread-only deterministic steady-state transfer and graph domain.
-// Graph is deliberately a 48 kHz reference preview until the processor's
-// actual sample rate is explicitly transported to the controller.
+// A 48 kHz reference applies only before an actual VST3 host rate is received.
 #include "MorpheusFilter.h"
 #include <algorithm>
 #include <array>
@@ -79,18 +78,21 @@ inline MorpheusFilter::Control cubeControl(Params const& p) noexcept {
  return {static_cast<unsigned>(std::clamp(std::floor(clamp01(p[7])*288.+.5),0.,288.)),
          clamp01(p[8]),clamp01(p[9]),clamp01(p[10])};
 }
-inline Curve computeAnalytic(Params const& p,bool& valid) noexcept {
+inline Curve computeAnalytic(Params const& p,bool& valid,double rate=kRate) noexcept {
  Curve result{};
+ if(!std::isfinite(rate)||rate<=0.){valid=false;return result;}
  valid=p[6]>=.5 || p[5]<1./110.;
  MorpheusFilter::Description d;
  if(p[6]>=.5){
-  d=MorpheusFilter::describe(cubeControl(p),kRate);
+  d=MorpheusFilter::describe(cubeControl(p),rate);
   valid=d.valid;
  }
  if(!valid)return result; // active X3 requires measured transfer, never a fake legacy curve
  for(std::size_t i=0;i<result.size();++i){
   const auto hz=frequency(i);
-  auto h=p[6]>=.5?morpheusTransfer(d,hz):legacyTransfer(p,hz);
+  // A frequency beyond host Nyquist must not be plotted as a valid response.
+  if(hz>=rate*.5){result[i]=std::numeric_limits<float>::quiet_NaN();continue;}
+  auto h=p[6]>=.5?morpheusTransfer(d,hz,rate):legacyTransfer(p,hz,rate);
   result[i]=levelDb(wetTransfer(h,p));
  }
  return result;

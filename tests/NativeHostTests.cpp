@@ -13,6 +13,7 @@
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "pluginterfaces/vst/ivstmessage.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -740,6 +741,19 @@ void exerciseFilterGraphNative(Module& module) {
  auto* get= reinterpret_cast<QaFn>(GetProcAddress(module.dll,"ZPlaneResponseQaGet"));
  require(get!=nullptr,"Development-only response view paint QA API");
  Instance host(module);
+ // Real VST3 host IConnectionPoint delivery; no direct view state writes.
+ IConnectionPoint* processorPoint=nullptr;
+ IConnectionPoint* controllerPoint=nullptr;
+ require(host.component->queryInterface(IConnectionPoint::iid,
+         reinterpret_cast<void**>(&processorPoint))==kResultOk&&processorPoint,
+         "Graph processor connection interface");
+ require(host.controller->queryInterface(IConnectionPoint::iid,
+         reinterpret_cast<void**>(&controllerPoint))==kResultOk&&controllerPoint,
+         "Graph controller connection interface");
+ require(controllerPoint->connect(processorPoint)==kResultOk,
+         "Graph controller connection");
+ require(processorPoint->connect(controllerPoint)==kResultOk,
+         "Graph processor connection");
  host.setup(kSample32,48000.,512);
  HWND parent=CreateWindowExW(0,L"STATIC",L"125A graphical DSP response QA",
          WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
@@ -776,6 +790,17 @@ void exerciseFilterGraphNative(Module& module) {
  repaint();
  const auto morphed=get(3);
  require(morpheus!=morphed,"Morph must change actual VSTGUI plotted points");
+ host.stop();
+ host.setup(kSample32,96000.,512);
+ repaint();
+ const auto curve96=get(3);
+ require(curve96!=morphed,
+         "Actual VST3 host rate 96k must change the drawn frequency response");
+ host.stop();
+ host.setup(kSample32,48000.,512);
+ repaint();
+ require(get(3)==morphed,
+         "Host rate restoration must reproduce 48k filter-response samples");
  require(host.controller->setParamNormalized(4,1.)==kResultTrue,
          "Bypass for flat displayed frequency response");
  repaint();
@@ -800,8 +825,14 @@ void exerciseFilterGraphNative(Module& module) {
  view->release();
  require(DestroyWindow(parent)!=0,"Custom graph parent cleanup");
  host.stop();
+ require(processorPoint->disconnect(controllerPoint)==kResultOk,
+         "Graph processor disconnection");
+ require(controllerPoint->disconnect(processorPoint)==kResultOk,
+         "Graph controller disconnection");
+ processorPoint->release();
+ controllerPoint->release();
  std::cout<<"FILTER RESPONSE NATIVE VSTGUI PASS: custom CView constructed and drawn, "
-          <<"legacy/Morpheus/morph/bypass/X3 curve data changes in draw() callback\n";
+          <<"host 48/96k, legacy/Morpheus/morph/bypass/X3 curve data changes in draw() callback\n";
 }
 void exerciseAttachedEditor(Module& module) {
  // The previous smoke only queried the 900x1050 dimensions. That cannot
