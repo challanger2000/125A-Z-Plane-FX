@@ -1,6 +1,7 @@
 // Native Windows host probe against the exact staged .vst3 module.
 // Tests real VST3 factory, 32/64-bit rendering, automation and project recall.
 #include "FilterCore.h"
+#include "DualLfo.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "base/source/fobject.h"
 #include "base/source/fstreamer.h"
@@ -320,7 +321,7 @@ void exerciseDenseAutomation(Module& module) {
 class NativeGUIEditBridge final : public FObject,public IComponentHandler {
  IAudioProcessor* processor_{};
 public:
- std::array<unsigned,11> starts{},updates{},ends{};
+ std::array<unsigned,zplane::DualLfo::kParameterCount> starts{},updates{},ends{};
  bool failed{false};
  explicit NativeGUIEditBridge(IAudioProcessor* p):processor_(p){}
  tresult PLUGIN_API beginEdit(ParamID id) override {
@@ -518,12 +519,23 @@ void exerciseNativeGUIOptionMenus(Module& module) {
          "Seed X3 filter selection at Legacy index 0");
  nativeGuiPump();
  SetFocus(canvas);
+ require(inst.controller->getParameterCount()==static_cast<int32>(zplane::DualLfo::kParameterCount),
+         "Controller exposes all 23 original and LFO parameters");
+ // One complete keyboard traversal must cover the entire expanded editor,
+ // not the old fixed 20-tab assumption from the six-parameter GUI.
+ // Keep the strict test of real X3 edits: no direct parameter setter here.
+ const auto maximumTabs=4*inst.controller->getParameterCount();
  bool legacySelected=false,x3Selected=false;
- for(int tab=0;tab<20&&!(legacySelected&&x3Selected);++tab) {
+ for(int tab=0;tab<maximumTabs&&!(legacySelected&&x3Selected);++tab) {
   nativeGuiKey(canvas,VK_TAB);
-  const auto legacyEdits=bridge->updates[0];
-  const auto x3Edits=bridge->updates[5];
+  const auto before=bridge->updates;
+  const auto legacyEdits=before[0],x3Edits=before[5];
   nativeGuiKey(canvas,VK_DOWN);
+  for(ParamID id=0;id<bridge->updates.size();++id)
+   if(bridge->updates[id]>before[id])
+    std::cout<<"Native keyboard traversal tab="<<tab
+             <<" edited ParamID="<<id
+             <<" value="<<inst.controller->getParamNormalized(id)<<"\\n";
   if(bridge->updates[0]>legacyEdits) {
    const auto actual=inst.controller->getParamNormalized(0);
    require(std::isfinite(actual)&&std::fabs(actual-1./3.)<1.e-6,
@@ -563,7 +575,9 @@ void exerciseNativeGUIOptionMenus(Module& module) {
   std::cerr<<"Native option-menu keyboard FAIL: Legacy="<<legacySelected
            <<" X3="<<x3Selected
            <<" legacy edits="<<bridge->updates[0]
-           <<" X3 edits="<<bridge->updates[5]<<"\\n";
+           <<" X3 edits="<<bridge->updates[5]
+           <<" visited maximumTabs="<<maximumTabs
+           <<" total parameters="<<inst.controller->getParameterCount()<<"\\n";
  require(legacySelected&&x3Selected,
          "Tab focus + Down must operate both real VSTGUI COptionMenus");
  require(bridge->starts[0]==bridge->ends[0]&&bridge->starts[0]>0,
