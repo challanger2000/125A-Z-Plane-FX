@@ -25,3 +25,14 @@
 3. `Processor::setState` requires the normal VST3 host lifecycle with audio processing suspended; concurrent *setState plus process* is not certified. Concurrent *getState plus process* has the explicit successful test above.
 4. X3 source supports 44.1/48/96/192 kHz. Other host rates, independent E-MU hardware sound-matching, uninterrupted DAW playback, full GUI/HiDPI owner acceptance, and original X3 commercial redistribution rights remain **NOT VERIFIED**.
 5. These are scoped component and integration checks, not complete 125A `QA/AUDIT-COMPLETENESS-CONTRACT.md` evidence. **No FINAL, no release approval, no implied permission to ship the third-party code or reconstructed filter-bank data.**
+
+
+## Final independently rerun development baseline — 2026-11-09
+
+- **Exact processor source SHA** `96bb1e4e2a52f4db594cf537b21a88249ef4f04b`, **source-pinned merged Test Lab SHA** `58dc3ba730bb6297ddf7636254d62d16d5bd7f9e`. [Windows Actions run #42547274136](https://github.com/challanger2000/125A-Z-Plane-FX/actions/runs/42547274136) completed **SUCCESS** against those exact revisions, including the source-audited double→float pre-narrowing bounds check and the concurrent lock-free save fix.
+- **7/7** Release CTests, including 1,320 mode/rate/Morph-Q allocation+exception cases and 220 finite-extreme-input + subsequent recovery cases for both PCM precisions; **47/47** official Steinberg Validator; **2,640/2,640** original-research X3 PCM renders; real HWND GUI controls/menus, host automation and block invariance **PASS**.
+- Native stress saved **8,000 complete project states while 5,000 real DSP callbacks changed all six parameters**; no torn states or failed reads.
+- Independent Test Lab P74 `TECHNICAL_BASELINE_PASS` with real stereo input, 44.1/48/96k concurrent playback/state, GUI/discovery inventory and fresh state capture; `release_approved=false` and full product-feature coverage still NOT DECLARED.
+- Pacing at 48 kHz / 256 frames over 180 cloud Windows callback blocks: **mean 0.0110178 ms**, **p95 0.0156 ms**, **p99 0.0187 ms**, **max 0.0212 ms**, **0** callback deadline overruns and **0** scheduler-late starts with 1-ms timer resolution requested. **Not physical ASIO / ETW or a worst-case proof**.
+
+**Disposition:** The verified scoped X3 C++ heap, finite-PCM recovery and concurrent getState defects are closed as technical development corrections. Overall **FULL AUDIT/FINAL is still blocked** by the explicitly listed unverified third-party runtime/system APIs, hardware ASIO/ETW, original E-MU hardware fidelity, accepted GUI/listening review and distribution rights. These exclusions are real release gates, not automatically PASS.
