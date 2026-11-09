@@ -1044,10 +1044,13 @@ void exerciseMultipleLiveGraphEditors(Module& module) {
  };
  using Clock=std::chrono::steady_clock;
  std::vector<double> redrawMilliseconds;
- redrawMilliseconds.reserve(24);
+ redrawMilliseconds.reserve(48);
  const auto paint=[&](OpenedEditor& editor) {
-  // Process timers, then synchronously repaint THIS native child last.
-  nativeGuiPump();
+  // This is a 100 ms VSTGUI timer, not an immediate controller callback:
+  // first allow queued real DSP Data Exchange + UI timer delivery. A
+  // single 20 ms nativeGuiPump() made the original test falsely fail
+  // before the graphical timer had ever consumed valid audio telemetry.
+  for(unsigned settle=0;settle<10;++settle)nativeGuiPump();
   for(int pass=0;pass<4;++pass){
    InvalidateRect(editor.canvas,nullptr,FALSE);
    UpdateWindow(editor.canvas);
@@ -1059,6 +1062,10 @@ void exerciseMultipleLiveGraphEditors(Module& module) {
   const auto t1=Clock::now();
   redrawMilliseconds.push_back(std::chrono::duration<double,std::milli>(t1-t0).count());
   require(get(1)>before,"Multi-editor actual custom graph draw");
+  if(get(5)!=1)
+   std::cerr<<"Multi-editor telemetry diagnostic: updates="<<get(2)
+            <<" plotted="<<get(1)<<" X3_impulses="<<get(7)
+            <<" live="<<get(5)<<" views="<<get(10)<<"\n";
   require(get(5)==1,"Multi-editor graph uses real DSP telemetry");
   return get(3);
  };
