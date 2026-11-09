@@ -883,12 +883,53 @@ void exerciseFilterGraphNative(Module& module) {
   require(get(5)==1,"Received real DSP modulation frame in VSTGUI");
  };
  renderAtBeat(.25,true);
- const auto positive=get(3),baseCurve=get(4);
+ const auto positive=get(3),baseCurve=get(4),morpheusBaseComputations=get(6);
  renderAtBeat(.75,false);
  require(baseCurve==get(4),"Stationary base curve despite LFO phase changes");
+ require(get(6)==morpheusBaseComputations,
+         "Morpheus LFO phase must not recompute unchanged base response");
  require(positive!=get(3),
          "DSP beat and LFO phase must change actual plotted frequency response");
  require(get(2)>=4,"VSTGUI view must read controller parameter changes");
+#ifdef ZPLANE_WITH_X3_RESEARCH
+ // A live X3 curve uses an 8192-frame impulse plus FFT. Verify that the
+ // stationary X3 reference is not recomputed on each audio LFO phase.
+ setGraphControl(5,24./55.);
+ setGraphControl(6,0.);
+ ParameterChanges x3Edits;
+ for(const auto& edit:std::array<std::pair<ParamID,double>,2>{{
+     {5,24./55.},{6,0.}}}){
+  int32 slot=0,point=0;
+  auto* q=x3Edits.addParameterData(edit.first,slot);
+  require(q&&q->addPoint(0,edit.second,point)==kResultOk,
+          "Create actual X3 live-mode host parameter queue");
+ }
+ const auto x3Before=get(7);
+ const auto renderAtX3Beat=[&](double beat,bool first) {
+  clock.projectTimeMusic=beat;
+  for(unsigned block=0;block<12;++block){
+   d.inputParameterChanges=first&&block==0?&x3Edits:nullptr;
+   require(host.audio->process(d)==kResultOk,"Native X3 LFO audio process");
+   require(std::isfinite(outL[0]),"Native X3 LFO output remains finite");
+  }
+  repaint();repaint();
+  require(get(5)==1,"X3 graph must receive actual processor modulation");
+ };
+ renderAtX3Beat(.25,true);
+ const auto firstX3Curve=get(3),firstX3Base=get(4);
+ const auto baseCount=get(6),x3Count=get(7),computeUs=get(8);
+ require(x3Count>x3Before,"First X3 phase must run an actual impulse plus FFT");
+ renderAtX3Beat(.75,false);
+ require(firstX3Curve!=get(3),"DSP LFO must move the real X3 response");
+ require(firstX3Base==get(4),"X3 unmodulated base must stay stationary");
+ require(get(6)==baseCount,"Unchanged X3 base response must not be recalculated");
+ require(get(7)==x3Count+1,
+         "Exactly one X3 response measurement per phase change, no duplicate base FFT");
+ std::cout<<"X3 VSTGUI PERFORMANCE: phase-2 measurements=1, redundant base=0, "
+          <<"phase-2 compute_us="<<(get(8)-computeUs)
+          <<", maximum_compute_us="<<get(9)
+          <<" (Windows runner diagnostic, NOT physical ASIO)\n";
+#endif
  host.stop();
  repaint();
  require(get(5)==0,"No stale live motion after processor deactivation");

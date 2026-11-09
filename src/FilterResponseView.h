@@ -13,6 +13,7 @@
 #include <atomic>
 #include <bit>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -26,6 +27,7 @@ namespace zplane {
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
 namespace response_qa {
 inline std::atomic<std::uint64_t> created{0},drawn{0},updated{0},curveSignature{0},baseSignature{0},live{0};
+inline std::atomic<std::uint64_t> baseComputations{0},x3Computations{0},graphComputeMicroseconds{0},graphComputeMaxMicroseconds{0};
 }
 #endif
 class FilterResponseView final : public VSTGUI::CView {
@@ -84,6 +86,9 @@ class FilterResponseView final : public VSTGUI::CView {
   const auto index=static_cast<unsigned>(
     std::clamp(std::floor(response::clamp01(source[5])*55.+.5),0.,55.));
   if(index==0)return false;
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  response_qa::x3Computations.fetch_add(1,std::memory_order_relaxed);
+#endif
   x3_->reset();
   const auto rounded=static_cast<unsigned>(std::llround(sampleRate_));
   if(std::abs(sampleRate_-rounded)>.01)return false;
@@ -154,6 +159,8 @@ class FilterResponseView final : public VSTGUI::CView {
     live=true;
    }
   }
+  const bool baseChanged=!haveParameters_||base!=parameters_||
+    sampleRate_!=newRate||actualRate_!=known;
   if(haveParameters_&&base==parameters_&&target==effective_&&
      sampleRate_==newRate&&actualRate_==known&&modulating_==live)return;
   haveParameters_=true;
@@ -162,9 +169,29 @@ class FilterResponseView final : public VSTGUI::CView {
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
   response_qa::updated.fetch_add(1,std::memory_order_relaxed);
 #endif
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  const auto graphStarted=std::chrono::steady_clock::now();
+#endif
   calculate(effective_,db_,valid_);
-  if(modulating_)calculate(parameters_,baseDb_,baseValid_);
-  else {baseDb_=db_;baseValid_=valid_;}
+  // A stationary base transfer is invariant under LFO phase. Each X3
+  // recomputation would otherwise perform another 8192-frame impulse + FFT.
+  if(modulating_){
+   if(baseChanged){
+    calculate(parameters_,baseDb_,baseValid_);
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+    response_qa::baseComputations.fetch_add(1,std::memory_order_relaxed);
+#endif
+   }
+  }else {baseDb_=db_;baseValid_=valid_;}
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  const auto elapsed=std::chrono::duration_cast<std::chrono::microseconds>(
+    std::chrono::steady_clock::now()-graphStarted).count();
+  const auto micros=static_cast<std::uint64_t>(std::max<std::int64_t>(0,elapsed));
+  response_qa::graphComputeMicroseconds.fetch_add(micros,std::memory_order_relaxed);
+  auto maxUs=response_qa::graphComputeMaxMicroseconds.load(std::memory_order_relaxed);
+  while(maxUs<micros&&!response_qa::graphComputeMaxMicroseconds.compare_exchange_weak(
+    maxUs,micros,std::memory_order_relaxed,std::memory_order_relaxed)){}
+#endif
   invalid();
  }
 public:

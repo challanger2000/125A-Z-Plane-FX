@@ -1028,6 +1028,10 @@ ZPlaneResponseQaGet(unsigned field) noexcept {
   case 3:return curveSignature.load(std::memory_order_acquire);
   case 4:return baseSignature.load(std::memory_order_acquire);
   case 5:return live.load(std::memory_order_acquire);
+  case 6:return baseComputations.load(std::memory_order_acquire);
+  case 7:return x3Computations.load(std::memory_order_acquire);
+  case 8:return graphComputeMicroseconds.load(std::memory_order_acquire);
+  case 9:return graphComputeMaxMicroseconds.load(std::memory_order_acquire);
   default:return 0;
  }
 }
