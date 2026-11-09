@@ -79,10 +79,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          git clone --depth 1 --branch main https://github.com/challanger2000/125A-Plugin-Test-Lab.git lab
+          git clone --depth 1 --branch fix/p98-generic-stereo-effect-p25 https://github.com/challanger2000/125A-Plugin-Test-Lab.git lab
           if ($LASTEXITCODE -ne 0) { throw 'Test Lab checkout failed' }
           $labSha=(git -C lab rev-parse HEAD).Trim()
-          if ($labSha -ne 'bc839e345bfc5657f9196f7db8d6945584e1bec7') {
+          if ($labSha -ne '66ec829f3242e6f84a5ed2b3fef0c35bb4bc7960') {
             throw "Unreviewed Test Lab version $labSha"
           }
           cmake -S lab -B lab-build -A x64 -DFETCHCONTENT_SOURCE_DIR_VST3SDK="$env:GITHUB_WORKSPACE/sdk"
