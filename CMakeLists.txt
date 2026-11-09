@@ -31,7 +31,10 @@ if(ZPLANE_VERIFY_MORPHOSIS_ORACLE AND BUILD_TESTING)
  set(_morphosis_sha "d271a8a8c6cf8bb5524e588c3497f4b5544a22cd")
  set(_morphosis_dir "${CMAKE_BINARY_DIR}/reference_morphosis")
  file(MAKE_DIRECTORY "${_morphosis_dir}")
- foreach(_morphosis_file IN ITEMS CubeData.h MorphosisDSP.h MorphosisDSP.cpp MorphosisSequencer.h)
+ # Deliberately share the 125A embedded CubeData.h with the independent
+ # reference DSP. Fetching a second CubeData.h would redefine the same
+ # constexpr record types in the oracle translation unit.
+ foreach(_morphosis_file IN ITEMS MorphosisDSP.h MorphosisDSP.cpp MorphosisSequencer.h)
   file(DOWNLOAD "https://raw.githubusercontent.com/limitsurface/morphosis_vst/${_morphosis_sha}/src/${_morphosis_file}"
    "${_morphosis_dir}/${_morphosis_file}" STATUS _morphosis_status TLS_VERIFY ON TIMEOUT 60)
   list(GET _morphosis_status 0 _morphosis_result)
