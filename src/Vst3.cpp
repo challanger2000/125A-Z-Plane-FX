@@ -17,6 +17,7 @@
 #include <windows.h>
 #include "public.sdk/source/main/pluginfactory.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
+#include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "base/source/fstreamer.h"
 #include <algorithm>
 #include <array>

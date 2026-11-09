@@ -10,6 +10,7 @@
 #include "pluginterfaces/gui/iplugview.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
+#include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -1652,6 +1653,131 @@ void exerciseMorpheusCubes(Module& module) {
  std::cout<<"MORPHEUS NATIVE HOST PASS: all 289 cubes rendered in float/double, "
           <<"over 200 non-null wet modes audibly different from dry\n";
 }
+void exerciseLfoAudioAndLegacyState(Module& module) {
+ constexpr std::size_t kFrames=256;
+ constexpr unsigned kBlocks=72;
+ const auto renderLfo=[&](double on,double depth,double cubeOn,double x3Select,
+                          double target,int precision)->std::vector<double>{
+  Instance host(module);
+  host.setup(precision,48000.,static_cast<int32>(kFrames));
+  std::array<Sample32,kFrames> floatL{},floatR{},floatOutL{},floatOutR{};
+  std::array<Sample64,kFrames> doubleL{},doubleR{},doubleOutL{},doubleOutR{};
+  Sample32* inputs32[]{floatL.data(),floatR.data()};
+  Sample32* outputs32[]{floatOutL.data(),floatOutR.data()};
+  Sample64* inputs64[]{doubleL.data(),doubleR.data()};
+  Sample64* outputs64[]{doubleOutL.data(),doubleOutR.data()};
+  AudioBusBuffers input{},output{};
+  input.numChannels=output.numChannels=2;
+  if(precision==kSample32){
+   input.channelBuffers32=inputs32;output.channelBuffers32=outputs32;
+  }else{
+   input.channelBuffers64=inputs64;output.channelBuffers64=outputs64;
+  }
+  ProcessContext clock{};
+  clock.sampleRate=48000.;clock.tempo=120.;
+  clock.state=ProcessContext::kPlaying|ProcessContext::kTempoValid|
+              ProcessContext::kProjectTimeMusicValid;
+  ProcessData process{};
+  process.numSamples=static_cast<int32>(kFrames);
+  process.numInputs=process.numOutputs=1;
+  process.inputs=&input;process.outputs=&output;
+  process.symbolicSampleSize=precision;
+  process.processMode=kRealtime;process.processContext=&clock;
+  std::vector<double> rendered;
+  rendered.reserve(kBlocks*kFrames);
+  for(unsigned block=0;block<kBlocks;++block){
+   for(std::size_t i=0;i<kFrames;++i){
+    const auto pos=static_cast<double>(block*kFrames+i);
+    const auto l=.043*std::sin(pos*.031)+.016*std::cos(pos*.093);
+    const auto r=.039*std::cos(pos*.027)-.012*std::sin(pos*.044);
+    floatL[i]=static_cast<float>(l);floatR[i]=static_cast<float>(r);
+    doubleL[i]=l;doubleR[i]=r;
+   }
+   ParameterChanges changes;
+   if(block==0){
+    const std::array<std::pair<ParamID,double>,10> values{{
+     {6,cubeOn},{7,46./288.},{5,x3Select},{8,.5},
+     {11,on},{12,.5},{13,depth},{14,0.},{15,target},{16,1.}
+    }};
+    for(const auto& item:values){
+     int32 idx=0,point=0;
+     auto* queue=changes.addParameterData(item.first,idx);
+     require(queue!=nullptr&&queue->addPoint(0,item.second,point)==kResultOk,
+             "Dual LFO initial control queue");
+    }
+    process.inputParameterChanges=&changes;
+   } else process.inputParameterChanges=nullptr;
+   clock.projectTimeMusic=
+      static_cast<double>(block*kFrames)*clock.tempo/(60.*48000.);
+   require(host.audio->process(process)==kResultOk,
+           "LFO-hosted audio process with actual tempo and PPQ");
+   for(std::size_t i=0;i<kFrames;++i){
+    const auto y=precision==kSample32?
+       static_cast<double>(floatOutL[i]):doubleOutL[i];
+    require(std::isfinite(y)&&std::abs(y)<1.e6,
+            "Bipolar LFO-hosted PCM must remain finite");
+    rendered.push_back(y);
+   }
+  }
+  host.stop();
+  return rendered;
+ };
+ const auto checkDifferent=[](const std::vector<double>& reference,
+                               const std::vector<double>& changed,const char* reason) {
+  require(reference.size()==changed.size(),"LFO comparison buffer dimensions");
+  double delta=0.;
+  for(std::size_t i=0;i<reference.size();++i)
+   delta+=std::abs(reference[i]-changed[i]);
+  require(delta>.005,reason);
+ };
+ for(const int precision:{kSample32,kSample64}){
+  for(const double cubeOn:{0.,1.}){
+   const auto off=renderLfo(0.,0.,cubeOn,0.,.25,precision);
+   const auto zero=renderLfo(1.,0.,cubeOn,0.,.25,precision);
+   require(off==zero,
+           "Depth zero must preserve bit-identical Legacy/Morpheus VST3 PCM");
+   const auto moving=renderLfo(1.,1.,cubeOn,0.,.25,precision);
+   checkDifferent(off,moving,
+      "Morpheus/Legacy modulation must change real VST3 audio");
+  }
+#ifdef ZPLANE_WITH_X3_RESEARCH
+  const auto offX3=renderLfo(0.,0.,0.,12./55.,1.,precision);
+  const auto onX3=renderLfo(1.,1.,0.,12./55.,1.,precision);
+  checkDifferent(offX3,onX3,
+        "X3 resonance LFO must change real filter PCM");
+#endif
+ }
+ // All historical project versions must load and produce full neutral v4.
+ for(const std::uint32_t version:{1u,2u,3u}){
+  Instance host(module);
+  Steinberg::ResizableMemoryIBStream old;
+  Steinberg::IBStreamer writer(&old,kLittleEndian);
+  require(writer.writeInt32u(0x3150585Au)&&writer.writeInt32u(version),
+          "Legacy state header");
+  const auto params=version==1?5u:version==2?6u:11u;
+  for(unsigned i=0;i<params;++i)
+   require(writer.writeDouble(i==3?1.:i==1?.5:0.),
+           "Legacy v1/v2/v3 parameter fixture");
+  old.rewind();
+  require(host.component->setState(&old)==kResultOk,
+          "Old project must migrate to v4 without loss");
+  old.rewind();
+  require(host.controller->setComponentState(&old)==kResultOk,
+          "Old project controller recall");
+  for(ParamID id=11;id<=22;++id){
+   const auto value=host.controller->getParamNormalized(id);
+   const auto wanted=(id==12||id==18)?.5:
+     (id==15||id==21)?.25:(id==16||id==22)?1.:0.;
+   require(std::abs(value-wanted)<1.e-12,
+          "Old project must default both LFOs neutral");
+  }
+  Steinberg::ResizableMemoryIBStream rewritten;
+  require(host.component->getState(&rewritten)==kResultOk&&rewritten.getCursor()==192,
+          "All historical projects save as complete 23-parameter state v4");
+ }
+ std::cout<<"DUAL LFO NATIVE HOST PASS: actual Morpheus/Legacy/X3 PCM in float/double; "
+          <<"0% depth bit-identical; PPQ tempo; v1/v2/v3 state migration to v4\n";
+}
 int main(int argc,char** argv){
  require(argc==2||(argc==3&&std::strcmp(argv[2],"--embedded-smoke")==0),
          "Expected packaged VST3 binary path with optional --embedded-smoke");
@@ -1669,6 +1795,7 @@ int main(int argc,char** argv){
  exerciseDenseAutomation(module);
  exerciseConcurrentStateSnapshots(module);
  exerciseMorpheusCubes(module);
+ exerciseLfoAudioAndLegacyState(module);
  exerciseAttachedEditor(module);
  exerciseFilterGraphNative(module);
  exerciseNativeGUIEdits(module);
