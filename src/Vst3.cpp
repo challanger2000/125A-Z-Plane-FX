@@ -18,6 +18,7 @@
 #include "base/source/fstreamer.h"
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 
@@ -116,9 +117,40 @@ class Processor final : public AudioEffect {
  }
 #endif
  AutomationTimeline timeline_{}; // preallocated outside realtime callback
+ // getState() may be called from a host control thread while VST3 process()
+ // changes multiple parameter values. Reading the plain audio params_
+ // concurrently was a C++ data race and could save mixed bank/filter state.
+ // Only the audio owner publishes; readers obtain a coherent atomic frame.
+ static_assert(std::atomic<double>::is_always_lock_free);
+ static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
+ std::array<std::atomic<double>,6> published_{};
+ std::atomic<std::uint64_t> publicationSeq_{0};
+ void publishParams() noexcept {
+  publicationSeq_.fetch_add(1,std::memory_order_acq_rel); // writer active
+  for(std::size_t i=0;i<params_.size();++i)
+   published_[i].store(params_[i],std::memory_order_relaxed);
+  publicationSeq_.fetch_add(1,std::memory_order_release); // coherent
+ }
+ bool readPublished(std::array<double,6>& values) const noexcept {
+  // Control thread only; a bounded retry returns failure rather than
+  // writing a torn project state in pathological contention.
+  for(unsigned retry=0;retry<512;++retry){
+   const auto before=publicationSeq_.load(std::memory_order_acquire);
+   if(before&1u)continue;
+   for(std::size_t i=0;i<values.size();++i)
+    values[i]=published_[i].load(std::memory_order_relaxed);
+   const auto after=publicationSeq_.load(std::memory_order_acquire);
+   if(before==after)return true;
+  }
+  return false;
+ }
  double rate_{48000.};
 public:
- Processor(){setControllerClass(kController);}
+ Processor(){
+  setControllerClass(kController);
+  for(std::size_t i=0;i<defaults.size();++i)
+   published_[i].store(defaults[i],std::memory_order_relaxed);
+ }
  static FUnknown* createInstance(void*){return static_cast<IAudioProcessor*>(new Processor());}
  tresult PLUGIN_API initialize(FUnknown* context) override {
   const auto rc=AudioEffect::initialize(context); if(rc!=kResultOk)return rc;
@@ -202,6 +234,7 @@ public:
   timeline.finalize();
   if(data.numSamples==0){
     for(std::size_t e=0;e<timeline.size();++e)params_[timeline[e].parameter]=timeline[e].value;
+    publishParams();
     return kResultOk;
   }
   if(data.numInputs<1||data.numOutputs<1||!data.inputs||!data.outputs)return kInvalidArgument;
@@ -278,13 +311,16 @@ public:
   while(event<timeline.size()){
     params_[timeline[event].parameter]=timeline[event].value;++event;
   }
+  publishParams();
   out.silenceFlags=0;return kResultOk;
  }
  tresult PLUGIN_API getState(IBStream* stream) override {
   if(!stream)return kInvalidArgument;
   IBStreamer st(stream,kLittleEndian);
   if(!st.writeInt32u(kMagic)||!st.writeInt32u(2))return kResultFalse;
-  for(double p:params_)if(!st.writeDouble(p))return kResultFalse;
+  std::array<double,6> coherent{};
+  if(!readPublished(coherent))return kResultFalse;
+  for(double p:coherent)if(!st.writeDouble(p))return kResultFalse;
   return kResultOk;
  }
  tresult PLUGIN_API setState(IBStream* stream) override {
@@ -293,7 +329,10 @@ public:
   auto candidate=params_;
   for(std::size_t i=0;i<(version==1?5u:6u);++i){auto& p=candidate[i];if(!st.readDouble(p)||!std::isfinite(p)||p<0.||p>1.)return kResultFalse;}
   if(version==1)candidate[kX3Filter]=0.;
-  params_=candidate;dsp_.configure(rate_,makeSettings(params_));
+  // Per VST3 lifecycle, setState is a host control-thread operation
+  // with audio processing suspended. getState alone may be concurrent.
+  params_=candidate;publishParams();
+  dsp_.configure(rate_,makeSettings(params_));
 #ifdef ZPLANE_WITH_X3_RESEARCH
   x3_.reset();
   familyBlend_=familyTarget_=familyStep_=0.;

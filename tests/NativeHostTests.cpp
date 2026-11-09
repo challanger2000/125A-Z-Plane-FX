@@ -3,6 +3,7 @@
 #include "FilterCore.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "base/source/fobject.h"
+#include "base/source/fstreamer.h"
 #include "public.sdk/source/vst/hosting/parameterchanges.h"
 #include "public.sdk/source/vst/utility/memoryibstream.h"
 #include "pluginterfaces/base/ipluginbase.h"
@@ -155,6 +156,73 @@ void render(Instance& inst,int32 format,ParameterChanges* changes,bool verify){
    require(outL[static_cast<size_t>(i)]==left[static_cast<size_t>(i)],
            "Sample-accurate bypass and five-ms ramp");
  }
+}
+void exerciseConcurrentStateSnapshots(Module& module) {
+ // Actual staged VST3 with a live audio thread repeatedly changing ALL
+ // six parameters while an independent control thread saves project state.
+ // Each save must be one COMPLETE vector (defaults/A/B), never a mixture.
+ Instance host(module);
+ host.setup(kSample32,48000.,64);
+ constexpr std::array<double,6> a{{0.,.15,.25,.80,0.,0.}};
+ constexpr std::array<double,6> b{{1.,.85,.75,.20,1.,1./55.}};
+ constexpr std::array<double,6> defaultsLocal{{0.,.5,.5,1.,0.,0.}};
+ std::array<float,64> inL{},inR{},outL{},outR{};
+ for(int i=0;i<64;++i){inL[static_cast<std::size_t>(i)]=i%7==0?.08f:.03f;}
+ Sample32* input[]{inL.data(),inR.data()},*output[]{outL.data(),outR.data()};
+ AudioBusBuffers in{},out{};in.numChannels=out.numChannels=2;
+ in.channelBuffers32=input;out.channelBuffers32=output;
+ ProcessData data{};
+ data.numSamples=64;data.numInputs=data.numOutputs=1;
+ data.inputs=&in;data.outputs=&out;
+ data.symbolicSampleSize=kSample32;data.processMode=kRealtime;
+ std::atomic<bool> ended{false};
+ std::atomic<unsigned> renderErrors{0};
+ std::thread worker([&] {
+  for(unsigned block=0;block<5000;++block){
+   ParameterChanges edits;
+   const auto& values=(block%2)?a:b;
+   for(ParamID id=0;id<6;++id){
+    int32 slot=0,point=0;
+    auto* q=edits.addParameterData(id,slot);
+    if(!q||q->addPoint(0,values[id],point)!=kResultOk) {
+     renderErrors.fetch_add(1);break;
+    }
+   }
+   data.inputParameterChanges=&edits;
+   if(host.audio->process(data)!=kResultOk){
+    renderErrors.fetch_add(1);break;
+   }
+   if((block&7u)==0)std::this_thread::yield();
+  }
+  ended.store(true,std::memory_order_release);
+ });
+ unsigned reads=0,mixed=0,rejected=0;
+ for(unsigned trial=0;trial<8000;++trial) {
+  Steinberg::ResizableMemoryIBStream stream;
+  if(host.component->getState(&stream)!=kResultOk){++rejected;continue;}
+  stream.rewind();
+  Steinberg::IBStreamer reader(&stream,Steinberg::kLittleEndian);
+  Steinberg::uint32 magic=0,version=0;
+  std::array<double,6> sample{};
+  bool valid=reader.readInt32u(magic)&&reader.readInt32u(version)&&
+    magic==0x3150585Au&&version==2;
+  for(auto& value:sample)
+   if(valid)valid=reader.readDouble(value);
+  if(!valid||!(sample==a||sample==b||sample==defaultsLocal)){
+   ++mixed;
+   if(mixed<=2)std::cerr<<"Concurrent saved state was not atomic at read "<<trial<<"\\n";
+  }
+  ++reads;
+  if(ended.load(std::memory_order_acquire)&&reads>=512)break;
+ }
+ worker.join();
+ require(renderErrors.load()==0,"Concurrent audio process must not fail");
+ require(rejected==0,"Concurrent getState must find a coherent state");
+ require(reads>=512&&mixed==0,
+         "Concurrent host save must never contain mixed parameter generations");
+ host.stop();
+ std::cout<<"NATIVE HOST PASS: concurrent 5000 real callback state edits and "
+          <<reads<<" coherent six-parameter project saves\\n";
 }
 void exerciseDenseAutomation(Module& module) {
  // Adversarial 4096 host events (the documented capacity). Use distinct offsets:
@@ -1398,6 +1466,7 @@ int main(int argc,char** argv){
  exercise(module,kSample32);
  exercise(module,kSample64);
  exerciseDenseAutomation(module);
+ exerciseConcurrentStateSnapshots(module);
  exerciseAttachedEditor(module);
  exerciseNativeGUIEdits(module);
  exerciseNativeGUIOptionMenus(module);
