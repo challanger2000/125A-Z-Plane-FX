@@ -201,7 +201,7 @@ void exerciseConcurrentStateSnapshots(Module& module) {
   Steinberg::ResizableMemoryIBStream stream;
   if(host.component->getState(&stream)!=kResultOk){++rejected;continue;}
   stream.rewind();
-  Steinberg::IBStreamer reader(&stream,Steinberg::kLittleEndian);
+  Steinberg::IBStreamer reader(&stream,kLittleEndian);
   Steinberg::uint32 magic=0,version=0;
   std::array<double,6> sample{};
   bool valid=reader.readInt32u(magic)&&reader.readInt32u(version)&&
