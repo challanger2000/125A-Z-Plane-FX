@@ -17,3 +17,9 @@ Development branch: \`feature/morpheus-ultraproteus-289-cubes\`. Separate from 5
 - Restored native binary32 radius rounding before host-rate conversion, plus the firmware cosine approximation at the native sample rate. Tests include a changed-coefficient negative control so a flat/neutral response cannot pass.
 - Source: `limitsurface/morphosis_vst/tests/fixtures/reference.json`, schema `morphosis-linear-reference/v1`, source cube-body hash `07ec5c87a17fbcc6c199ced1caf6756c9e2ad8813daf05eb9a9cdff2e610ff29`.
 - Mathematical/PCM agreement with these reference cases is not proof of historical hardware accuracy, all 288 filter sounds, ASIO scheduling or Studio One acceptance. No DSP UI filter display yet.
+
+## Full 288-filter independent oracle (development QA)
+- A TEST-ONLY executable compiles the **pinned upstream MorphosisDSP.cpp** directly at commit `d271a8a8c6cf8bb5524e588c3497f4b5544a22cd`. This reference code is **not linked into the shipped VST3**.
+- Compares every non-null cube (1..288) against upstream coefficients and analytical filter response at **five 3D settings × five sample rates** (including native firmware rate). Any missing/invalid case, silent fallback or mismatched coefficient is a regression failure.
+- The seven-pole-pair signal transfer uses both recovered Cartesian components a/b; evaluating the native cosine/sine firmware approximations must preserve a²+b² rather than substituting radius².
+- Physical hardware equivalence and nonlinear behavior still require independent hardware/audio references and host acceptance.

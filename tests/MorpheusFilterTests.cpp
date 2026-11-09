@@ -21,7 +21,7 @@ bool verifyIndependentReferences() {
   for(std::size_t i=0;i<d.stages.size();++i){
    const auto& s=d.stages[i];
    const auto& golden=ref.stages[i];
-   const std::array<double,5> actual{s.a,s.radius,s.z1,s.z2,s.scale};
+   const std::array<double,6> actual{s.a,s.b,s.radius,s.z1,s.z2,s.scale};
    for(std::size_t k=0;k<actual.size();++k){
     if(!closeReference(actual[k],golden[k],5.e-11,5.e-9)){
      std::cerr<<"REFERENCE FAIL: coefficient "<<ref.name

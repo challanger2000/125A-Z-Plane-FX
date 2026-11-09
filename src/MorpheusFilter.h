@@ -23,7 +23,7 @@ public:
   bool operator==(const Control&) const = default;
  };
  struct Section {
-  double a=0.,radius=0.,z1=0.,z2=0.,scale=1.;
+  double a=0.,b=0.,radius=0.,z1=0.,z2=0.,scale=1.;
  };
  struct Description {
   std::array<Section,kStages> stages{};
@@ -71,13 +71,14 @@ public:
    auto& c=desc.stages[stage];
    c.radius=radius;
    c.a=c.radius*(adaptRate?std::cos(angle):firmwareCosine(poleAngle));
+   c.b=c.radius*(adaptRate?std::sin(angle):firmwareSine(poleAngle));
    c.z1=-2.*zeroRadius*
      (adaptRate?std::cos(zeroAngle*ratio):firmwareCosine(zeroAngle));
    c.z2=zeroRadius*zeroRadius;
    const bool normalize=(record.words[offset+8]&0x80000000u)!=0u;
    c.scale=normalize?
       1.+c.radius*c.radius-2.*c.a:1.;
-   if(!std::isfinite(c.a)||!std::isfinite(c.z1)||
+   if(!std::isfinite(c.a)||!std::isfinite(c.b)||!std::isfinite(c.z1)||
       !std::isfinite(c.scale)||c.scale<0.)desc.valid=false;
   }
   const std::array<std::uint32_t,4> gains{record.words[112],record.words[113],
@@ -98,8 +99,8 @@ public:
   for(const auto& s:d.stages){
    const auto numerator=std::hypot(1.+s.z1*cs+s.z2*cs2,
                                   -s.z1*sn-s.z2*sn2);
-   const auto denominator=std::hypot(1.-2.*s.a*cs+s.radius*s.radius*cs2,
-                                    2.*s.a*sn-s.radius*s.radius*sn2);
+   const auto denominator=std::hypot(1.-2.*s.a*cs+(s.a*s.a+s.b*s.b)*cs2,
+                                    2.*s.a*sn-(s.a*s.a+s.b*s.b)*sn2);
    value*=s.scale*numerator/std::max(denominator,1.e-15);
   }
   return value;
@@ -200,6 +201,16 @@ private:
   const auto correction=static_cast<double>(std::bit_cast<float>(0x3e1fd312u));
   return distance-distance*distance*distance*correction;
  }
+ static double firmwareSine(double angle) noexcept {
+  const auto threshold=static_cast<double>(std::bit_cast<float>(0x3ec90fd8u));
+  if(angle<=threshold) {
+   const auto fourth=static_cast<double>(std::bit_cast<float>(0x3b6e54ffu));
+   const auto cubic=static_cast<double>(std::bit_cast<float>(0x3dff9724u));
+   return angle-angle*angle*angle*(angle*fourth+cubic);
+  }
+  const auto cosine=firmwareCosine(angle);
+  return std::sqrt(std::max(0.,1.-cosine*cosine));
+ }
  static double clean(double value) noexcept {
   return std::isfinite(value)?std::clamp(value,0.,1.):0.5;
  }
@@ -217,7 +228,7 @@ private:
   auto& states=bank.state[static_cast<std::size_t>(channel)];
   for(unsigned i=0;i<kStages;++i){
    auto& st=states[i];const auto& c=bank.d.stages[i];
-   const double w=c.scale*x+2.*c.a*st.w1-c.radius*c.radius*st.w2;
+   const double w=c.scale*x+2.*c.a*st.w1-(c.a*c.a+c.b*c.b)*st.w2;
    const double y=w+c.z1*st.w1+c.z2*st.w2;
    st.w2=st.w1;st.w1=w;
    if(!std::isfinite(y)||std::abs(y)>1.e7){
