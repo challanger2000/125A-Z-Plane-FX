@@ -17,6 +17,7 @@
 #include <windows.h>
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
+#pragma comment(lib, "gdi32.lib")
 #include <array>
 #include <algorithm>
 #include <chrono>
@@ -715,6 +716,106 @@ void exerciseNativeGUIMousePopups(Module& module) {
  bridge->release();inst.stop();
  std::cout<<"NATIVE GUI HOST PASS: real OS mouse popups, exact Legacy/X3 entries, "
           <<"live VST3 host edits and state recall\\n";
+}
+std::uint64_t nativeFilterGraphFingerprint(HWND canvas) {
+ require(canvas!=nullptr,"Filter graph screenshot canvas");
+ constexpr int width=830,height=178;
+ HDC source=GetDC(canvas);
+ require(source!=nullptr,"Filter graph GetDC");
+ HDC target=CreateCompatibleDC(source);
+ require(target!=nullptr,"Filter graph CreateCompatibleDC");
+ BITMAPINFO info{};
+ info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+ info.bmiHeader.biWidth=width;
+ info.bmiHeader.biHeight=-height;
+ info.bmiHeader.biPlanes=1;
+ info.bmiHeader.biBitCount=32;
+ info.bmiHeader.biCompression=BI_RGB;
+ void* pixels=nullptr;
+ HBITMAP bitmap=CreateDIBSection(source,&info,DIB_RGB_COLORS,&pixels,nullptr,0);
+ require(bitmap!=nullptr&&pixels!=nullptr,"Filter graph DIB");
+ HGDIOBJ previous=SelectObject(target,bitmap);
+ require(previous!=nullptr,"Filter graph select bitmap");
+ require(BitBlt(target,0,0,width,height,source,34,637,SRCCOPY)!=0,
+         "Filter graph actual HWND pixels");
+ GdiFlush();
+ const auto* bytes=static_cast<const std::uint8_t*>(pixels);
+ std::uint64_t checksum=14695981039346656037ull;
+ for(std::size_t i=0;i<static_cast<std::size_t>(width)*height*4;++i){
+  checksum^=bytes[i];
+  checksum*=1099511628211ull;
+ }
+ SelectObject(target,previous);
+ DeleteObject(bitmap);
+ DeleteDC(target);
+ ReleaseDC(canvas,source);
+ return checksum;
+}
+void exerciseFilterGraphNative(Module& module) {
+ // This examines actual Win32 pixels, not an XML view declaration or a
+ // self-reported array. Real GUI timers must redraw on host parameter edits.
+ Instance host(module);
+ host.setup(kSample32,48000.,512);
+ HWND parent=CreateWindowExW(0,L"STATIC",L"125A graphical DSP response QA",
+         WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+         35,35,950,930,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+ require(parent!=nullptr,"Create graph HWND");
+ ShowWindow(parent,SW_SHOWNA);UpdateWindow(parent);
+ auto* view=host.controller->createView(ViewType::kEditor);
+ require(view!=nullptr,"Create graph VST3 editor");
+ require(view->attached(parent,kPlatformTypeHWND)==kResultOk,"Graph editor attach");
+ ViewRect size{0,0,900,835};
+ require(view->onSize(&size)==kResultOk,"Graph editor exact host size");
+ HWND canvas=GetWindow(parent,GW_CHILD);
+ require(canvas!=nullptr,"Graph real child canvas");
+ const auto repaint=[canvas]{
+  for(int pass=0;pass<7;++pass){
+   nativeGuiPump();
+   InvalidateRect(canvas,nullptr,FALSE);
+   UpdateWindow(canvas);
+  }
+ };
+ repaint();
+ const auto defaultFingerprint=nativeFilterGraphFingerprint(canvas);
+ require(host.controller->setParamNormalized(6,1.)==kResultTrue&&
+         host.controller->setParamNormalized(7,46./288.)==kResultTrue,
+         "Activate measured Morpheus filter graph");
+ repaint();
+ const auto morpheusFingerprint=nativeFilterGraphFingerprint(canvas);
+ require(defaultFingerprint!=morpheusFingerprint,
+         "Actual filter graph pixels must change between legacy and Morpheus");
+ require(host.controller->setParamNormalized(8,.08)==kResultTrue,
+         "Automate Morpheus morph for graph");
+ repaint();
+ const auto morphedFingerprint=nativeFilterGraphFingerprint(canvas);
+ require(morpheusFingerprint!=morphedFingerprint,
+         "Actual filter graph must redraw when Morpheus morph changes");
+ require(host.controller->setParamNormalized(4,1.)==kResultTrue,
+         "Bypass for flat transfer display");
+ repaint();
+ const auto bypassFingerprint=nativeFilterGraphFingerprint(canvas);
+ require(morphedFingerprint!=bypassFingerprint,
+         "Bypass must redraw actual flat filter graph");
+#ifdef ZPLANE_WITH_X3_RESEARCH
+ require(host.controller->setParamNormalized(4,0.)==kResultTrue&&
+         host.controller->setParamNormalized(6,0.)==kResultTrue&&
+         host.controller->setParamNormalized(5,1./55.)==kResultTrue,
+         "Activate X3 impulse-response display");
+ repaint();
+ const auto x3A=nativeFilterGraphFingerprint(canvas);
+ require(host.controller->setParamNormalized(5,24./55.)==kResultTrue,
+         "Change X3 filter for independent impulse spectrum");
+ repaint();
+ const auto x3B=nativeFilterGraphFingerprint(canvas);
+ require(x3A!=x3B,
+         "X3 graph must actually change between two measured X3 filter types");
+#endif
+ require(view->removed()==kResultOk,"Graph view detach and timer destruction");
+ view->release();
+ require(DestroyWindow(parent)!=0,"Graph parent cleanup");
+ host.stop();
+ std::cout<<"FILTER RESPONSE NATIVE GUI PASS: real HWND pixels change with filter family, "
+          <<"Morpheus morph, bypass and two X3 filter types\n";
 }
 void exerciseAttachedEditor(Module& module) {
  // The previous smoke only queried the 900x835 dimensions. That cannot
@@ -1598,6 +1699,7 @@ int main(int argc,char** argv){
  exerciseConcurrentStateSnapshots(module);
  exerciseMorpheusCubes(module);
  exerciseAttachedEditor(module);
+ exerciseFilterGraphNative(module);
  exerciseNativeGUIEdits(module);
  exerciseNativeGUIOptionMenus(module);
  exerciseNativeGUIMousePopups(module);
