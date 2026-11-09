@@ -21,6 +21,7 @@
 #include <chrono>
 #include <numeric>
 #include <thread>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -521,6 +522,125 @@ void exerciseNativeGUIOptionMenus(Module& module) {
  inst.stop();
  std::cout<<"NATIVE GUI HOST PASS: both COptionMenus via HWND Tab/Down, "
           <<"host edits and persisted processor recall\\n";
+}
+
+void nativeGuiInjectKey(WORD code) {
+ INPUT pair[2]{};
+ pair[0].type=INPUT_KEYBOARD;pair[0].ki.wVk=code;
+ pair[1].type=INPUT_KEYBOARD;pair[1].ki.wVk=code;
+ pair[1].ki.dwFlags=KEYEVENTF_KEYUP;
+ (void)SendInput(2,pair,sizeof(INPUT));
+}
+void nativeGuiMouseChooseNext(HWND parent,HWND canvas,int x,int y,
+                              std::atomic<bool>& observedMenu) {
+ // A real OS TrackPopupMenu is modal and blocks the plugin UI thread.
+ // A bounded helper supplies native keyboard input from another thread;
+ // no direct Controller setter or fabricated WM_COMMAND may be used.
+ int localX=x,localY=y;
+ HWND target=nativeGuiTarget(parent,localX,localY);
+ SetForegroundWindow(parent);SetFocus(target);
+ POINT desktop{x,y};ClientToScreen(parent,&desktop);
+ SetCursorPos(desktop.x,desktop.y);
+ nativeGuiPump();
+ std::atomic<bool> done{false};
+ std::thread keyDriver([&](){
+  const DWORD threadID=GetWindowThreadProcessId(canvas,nullptr);
+  for(int n=0;n<24&&!done.load();++n){
+   GUITHREADINFO info{};info.cbSize=sizeof(info);
+   if(GetGUIThreadInfo(threadID,&info)&&(info.flags&GUI_INMENUMODE)){
+    observedMenu.store(true);break;
+   }
+   Sleep(25);
+  }
+  if(!done.load()){
+   nativeGuiInjectKey(VK_HOME);
+   Sleep(70);
+   nativeGuiInjectKey(VK_DOWN);
+   Sleep(70);
+   nativeGuiInjectKey(VK_RETURN);
+   Sleep(300);
+   if(!done.load()){
+    // Never leave TrackPopupMenu blocking indefinitely on a CI desktop
+    // which rejects SendInput. Abort safely and mark the test FAIL.
+    nativeGuiInjectKey(VK_ESCAPE);
+    PostMessageW(canvas,WM_CANCELMODE,0,0);
+   }
+  }
+ });
+ SendMessageW(target,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(localX,localY));
+ SendMessageW(target,WM_LBUTTONUP,0,MAKELPARAM(localX,localY));
+ nativeGuiPump();
+ done.store(true);
+ keyDriver.join();
+}
+void exerciseNativeGUIMousePopups(Module& module) {
+ // Both real Win32 popup menus must allow a user-triggered choice that
+ // reaches the live processor. The existing keyboard-only option test
+ // intentionally cannot stand in for this.
+ Instance inst(module);
+ inst.setup(kSample32,48000.,512);
+ auto* bridge=new NativeGUIEditBridge(inst.audio);
+ require(inst.controller->setComponentHandler(bridge)==kResultOk,
+         "Native menu popup host edit bridge");
+ HWND parent=CreateWindowExW(0,L"STATIC",L"ZPlane popup QA",
+        WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+        20,20,940,540,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+ require(parent!=nullptr,"Native popup host window");
+ ShowWindow(parent,SW_SHOWNORMAL);UpdateWindow(parent);
+ auto* view=inst.controller->createView(ViewType::kEditor);
+ require(view!=nullptr,"Native popup editor creation");
+ require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
+         "Native popup editor attach");
+ ViewRect rect{0,0,900,470};
+ require(view->onSize(&rect)==kResultOk,
+         "Native popup editor host sizing");
+ nativeGuiPump();
+ HWND canvas=GetWindow(parent,GW_CHILD);
+ require(canvas!=nullptr,"Native popup editor child HWND");
+ struct Menu {ParamID id;int x;int y;double expected;};
+ const std::array<Menu,2> menus{{{0,285,425,1./3.},
+                                 {5,440,176,1./55.}}};
+ for(const auto& item:menus){
+  require(inst.controller->setParamNormalized(item.id,0.)==kResultTrue,
+          "Initialize native popup menu to first selection");
+  nativeGuiPump();
+  std::atomic<bool> opened{false};
+  const auto before=bridge->updates[item.id];
+  nativeGuiMouseChooseNext(parent,canvas,item.x,item.y,opened);
+  const auto selected=inst.controller->getParamNormalized(item.id);
+  if(!opened.load()||bridge->updates[item.id]<=before||
+     std::fabs(selected-item.expected)>1.e-6)
+   std::cerr<<"Native popup FAIL id="<<item.id
+            <<" modal menu observed="<<opened.load()
+            <<" edits="<<bridge->updates[item.id]-before
+            <<" selected="<<selected
+            <<" expected="<<item.expected<<"\\n";
+  require(opened.load(),"Native popup menu must open as a real OS menu");
+  require(bridge->updates[item.id]>before &&
+          std::fabs(selected-item.expected)<1.e-6,
+          "Native mouse popup choice must reach exact VST3 parameter index");
+  require(bridge->starts[item.id]==bridge->ends[item.id]&&
+          bridge->starts[item.id]>0,
+          "Native popup host Begin/End edits balanced");
+ }
+ Steinberg::ResizableMemoryIBStream saved;
+ require(inst.component->getState(&saved)==kResultOk,
+         "Native popup choices persist in processor state");
+ saved.rewind();
+ require(inst.controller->setComponentState(&saved)==kResultOk,
+         "Native popup choices survive controller recall");
+ require(std::fabs(inst.controller->getParamNormalized(0)-1./3.)<1.e-6&&
+         std::fabs(inst.controller->getParamNormalized(5)-1./55.)<1.e-6,
+         "Both native Win32 popup choices persist in real project state");
+ require(!bridge->failed,"Native mouse popup host bridge must not fail");
+ require(view->removed()==kResultOk,"Native popup view clean detach");
+ view->release();
+ require(DestroyWindow(parent)!=0,"Destroy native popup window");
+ require(inst.controller->setComponentHandler(nullptr)==kResultOk,
+         "Clear native popup bridge");
+ bridge->release();inst.stop();
+ std::cout<<"NATIVE GUI HOST PASS: real OS mouse popups, exact Legacy/X3 entries, "
+          <<"live VST3 host edits and state recall\\n";
 }
 void exerciseAttachedEditor(Module& module) {
  // The previous smoke only queried the 900x470 dimensions. That cannot
@@ -1275,6 +1395,7 @@ int main(int argc,char** argv){
  exerciseAttachedEditor(module);
  exerciseNativeGUIEdits(module);
  exerciseNativeGUIOptionMenus(module);
+ exerciseNativeGUIMousePopups(module);
 #ifdef ZPLANE_WITH_X3_RESEARCH
  exerciseX3(module);
  exercisePacedX3(module);
