@@ -19,16 +19,21 @@
       "Resonance": "2",
       "Wet": "3",
       "Bypass": "4",
-      "X3Filter": "5"
+      "X3Filter": "5",
+      "MorpheusOn": "6",
+      "MorpheusCube": "7",
+      "MorpheusMorph": "8",
+      "MorpheusFrequency": "9",
+      "MorpheusTransform": "10"
     },
     "templates": {
       "ZPlaneMain": {
         "attributes": {
           "class": "CViewContainer",
           "origin": "0, 0",
-          "size": "900, 470",
-          "minSize": "900, 470",
-          "maxSize": "900, 470",
+          "size": "900, 650",
+          "minSize": "900, 650",
+          "maxSize": "900, 650",
           "background-color": "PanelDark",
           "transparent": "false",
           "mouse-enabled": "true"
@@ -80,7 +85,7 @@
             "attributes": {
               "class": "COptionMenu",
               "origin": "34, 151",
-              "size": "832, 48",
+              "size": "430, 48",
               "control-tag": "X3Filter",
               "back-color": "Control",
               "font-color": "Text",
@@ -243,9 +248,171 @@
           "StatusNote": {
             "attributes": {
               "class": "CTextLabel",
-              "origin": "480, 415",
-              "size": "400, 30",
-              "title": "X3 filter banks required for audio processing",
+              "origin": "34, 612",
+              "size": "830, 24",
+              "title": "289 MORPHEUS / ULTRAPROTEUS CUBES · SECOND FILTER ENGINE",
+              "font-color": "Muted",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "MorpheusLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "473, 117",
+              "size": "340, 25",
+              "title": "MORPHEUS / ULTRAPROTEUS CUBE",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "MorpheusSelector": {
+            "attributes": {
+              "class": "COptionMenu",
+              "origin": "473, 151",
+              "size": "390, 48",
+              "control-tag": "MorpheusCube",
+              "back-color": "Control",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "frame-color": "Border",
+              "frame-width": "1",
+              "text-alignment": "left",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "MorpheusOn": {
+            "attributes": {
+              "class": "CCheckBox",
+              "origin": "680, 407",
+              "size": "182, 44",
+              "title": "MORPHEUS ON",
+              "control-tag": "MorpheusOn",
+              "font": "~ NormalFont",
+              "font-color": "Text",
+              "checkmark-color": "Accent",
+              "boxfill-color": "Control",
+              "boxframe-color": "Border",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "MorpheusMorphLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 476",
+              "size": "240, 25",
+              "title": "MORPHEUS MORPH",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "MorpheusMorphSlider": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "34, 514",
+              "size": "247, 24",
+              "control-tag": "MorpheusMorph",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "MorpheusFrequencyLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "327, 476",
+              "size": "250, 25",
+              "title": "FREQUENCY TRACKING",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "MorpheusFrequencySlider": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "327, 514",
+              "size": "248, 24",
+              "control-tag": "MorpheusFrequency",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "MorpheusTransformLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "619, 476",
+              "size": "245, 25",
+              "title": "TRANSFORM 2",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "MorpheusTransformSlider": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "619, 514",
+              "size": "244, 24",
+              "control-tag": "MorpheusTransform",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "MorpheusNote": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 568",
+              "size": "830, 25",
+              "title": "CUBE 0: NULL  |  1-197: MORPHEUS  |  198-288: ULTRAPROTEUS",
               "font-color": "Muted",
               "font": "~ NormalFont",
               "text-alignment": "left",

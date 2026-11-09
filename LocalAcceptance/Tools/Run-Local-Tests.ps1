@@ -141,6 +141,7 @@ if(Test-Path -LiteralPath $dll){
 }
 [void](RunExe 'Core DSP Unit' (Join-Path $native 'zplane_core_tests.exe') @() 'core.log' $true)
 [void](RunExe 'Automation Unit' (Join-Path $native 'zplane_automation_tests.exe') @() 'automation.log' $true)
+[void](RunExe 'Morpheus 289 Cubes Unit' (Join-Path $native 'zplane_morpheus_tests.exe') @() 'morpheus-cubes.log' $true)
 [void](RunExe 'X3 Synthetic Fault Recovery' (Join-Path $native 'zplane_x3_adapter_tests.exe') @() 'x3-synthetic.log' $true)
 # Always test the self-contained VST3, independently of optional reference files.
 if(Test-Path -LiteralPath $dll -PathType Leaf){

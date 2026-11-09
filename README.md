@@ -9,7 +9,7 @@ The plugin now has two DSP paths:
 
 **The 55 X3 filters are now fully self-contained in the Windows VST3.** The three reconstructed and source-verified coefficient tables (`factory-bank.bin`, `standard-bank.bin`, `morph-support.bin`) are compiled into the plugin PE as native RCDATA resources. During initialization, the bank parser reads temporary copies on the **control thread**; they are removed immediately afterward. Users do **not** need an external `Banks` folder, an environment variable, or any manual installation of filter files. If embedded resource loading ever fails, initialization fails explicitly rather than silently pretending to filter dry audio. Separate external research files are needed **only** to run an independent scientific reference oracle locally, not for listening to or using the 55 filters.
 
-This branch exposes the actual research filter routines. Windows CI now builds **seven** Release-mode CTests, including 55 filter modes with real reconstructed banks across 44.1/48/96/192 kHz and the original independent X3 output reference vectors. The packaged VST3 is also loaded and tested in a native Windows host using the original-bank data. Those tests demonstrate bit-accurate results for the covered X3 reference cases, not exhaustive full-product or hardware emulation.
+This branch exposes the actual research filter routines. Windows CI now builds **eight** Release-mode CTests, including 55 filter modes with real reconstructed banks across 44.1/48/96/192 kHz and the original independent X3 output reference vectors. The packaged VST3 is also loaded and tested in a native Windows host using the original-bank data. Those tests demonstrate bit-accurate results for the covered X3 reference cases, not exhaustive full-product or hardware emulation.
 
 ## Windows build
 
@@ -21,8 +21,12 @@ Enable `-DZPLANE_WITH_X3_RESEARCH=ON` to compile the experimental external resea
 
 ## Compatibility and limitations
 
-The original five parameter IDs remain unchanged. Parameter ID 5 adds X3 selection, and component state v2 reads both v1 (five parameters) and v2 (six parameters). A first dark VSTGUI control layout is included (55-type X3 selector, Morph, Resonance/Q, Wet, Bypass and legacy filter selector). Its Windows editor view can be created by the actual VST3 host and reports the intended 900×470 size. Actual Win32 pointer/control/menu gestures are covered by native regression tests; owner visual/design acceptance, HiDPI variants and DAW session interaction remain unverified. The X3 Morph Designer programming controls are not exposed.
+The original five parameter IDs remain unchanged. Parameter ID 5 adds X3 selection, and component state v2 reads both v1 (five parameters) and v2 (six parameters). A first dark VSTGUI control layout is included (55-type X3 selector, Morph, Resonance/Q, Wet, Bypass and legacy filter selector). Its Windows editor view can be created by the actual VST3 host and reports the intended 900×650 size. Actual Win32 pointer/control/menu gestures are covered by native regression tests; owner visual/design acceptance, HiDPI variants and DAW session interaction remain unverified. The X3 Morph Designer programming controls are not exposed.
 
 **Distribution provenance:** The project owner states that the required commercial distribution rights are held. The repository itself does not contain a publicly verifiable grant; any commercial release decision is separate from the technical build and tests.
 
 The independent 125A Plugin Test Lab **technical baseline** and 55-filter original-research PCM comparisons passed in CI, but genuine Fender Studio Pro/ASIO playback, independent E-MU hardware fidelity and the entire required product audit remain open. **No FULL AUDIT and no release approval.** See [Development scope](docs/DEVELOPMENT-SCOPE.md).
+
+## Morpheus / UltraProteus integration candidate
+
+Development branch `feature/morpheus-ultraproteus-289-cubes` adds a separate seven-stage engine backed by 289 embedded Rossum-cube records (Null + 288), selectable in VSTGUI and host automation. Existing X3 IDs 0–5 are unchanged; new IDs 6–10 cover engine enable, cube, Morph, Frequency and Transform. Version 3 state reads v1/v2 project data. The DSP is a reconstruction; historical hardware-exact sonics and real DAW/ASIO operation still require independent confirmation. See `docs/MORPHEUS-289-INTEGRATION.md`.

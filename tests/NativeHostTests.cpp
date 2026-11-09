@@ -163,9 +163,9 @@ void exerciseConcurrentStateSnapshots(Module& module) {
  // Each save must be one COMPLETE vector (defaults/A/B), never a mixture.
  Instance host(module);
  host.setup(kSample32,48000.,64);
- constexpr std::array<double,6> a{{0.,.15,.25,.80,0.,0.}};
- constexpr std::array<double,6> b{{1.,.85,.75,.20,1.,1./55.}};
- constexpr std::array<double,6> defaultsLocal{{0.,.5,.5,1.,0.,0.}};
+ constexpr std::array<double,11> a{{0.,.15,.25,.80,0.,0.,0.,0.,.5,.5,.5}};
+ constexpr std::array<double,11> b{{1.,.85,.75,.20,1.,1./55.,1.,43./288.,.8,.3,.6}};
+ constexpr std::array<double,11> defaultsLocal{{0.,.5,.5,1.,0.,0.,0.,0.,.5,.5,.5}};
  std::array<float,64> inL{},inR{},outL{},outR{};
  for(int i=0;i<64;++i){inL[static_cast<std::size_t>(i)]=i%7==0?.08f:.03f;}
  Sample32* input[]{inL.data(),inR.data()},*output[]{outL.data(),outR.data()};
@@ -181,7 +181,7 @@ void exerciseConcurrentStateSnapshots(Module& module) {
   for(unsigned block=0;block<5000;++block){
    ParameterChanges edits;
    const auto& values=(block%2)?a:b;
-   for(ParamID id=0;id<6;++id){
+   for(ParamID id=0;id<11;++id){
     int32 slot=0,point=0;
     auto* q=edits.addParameterData(id,slot);
     if(!q||q->addPoint(0,values[id],point)!=kResultOk) {
@@ -203,9 +203,9 @@ void exerciseConcurrentStateSnapshots(Module& module) {
   stream.rewind();
   Steinberg::IBStreamer reader(&stream,kLittleEndian);
   Steinberg::uint32 magic=0,version=0;
-  std::array<double,6> sample{};
+  std::array<double,11> sample{};
   bool valid=reader.readInt32u(magic)&&reader.readInt32u(version)&&
-    magic==0x3150585Au&&version==2;
+    magic==0x3150585Au&&version==3;
   for(auto& value:sample)
    if(valid)valid=reader.readDouble(value);
   if(!valid||!(sample==a||sample==b||sample==defaultsLocal)){
@@ -222,7 +222,7 @@ void exerciseConcurrentStateSnapshots(Module& module) {
          "Concurrent host save must never contain mixed parameter generations");
  host.stop();
  std::cout<<"NATIVE HOST PASS: concurrent 5000 real callback state edits and "
-          <<reads<<" coherent six-parameter project saves\\n";
+          <<reads<<" coherent eleven-parameter project saves\\n";
 }
 void exerciseDenseAutomation(Module& module) {
  // Adversarial 4096 host events (the documented capacity). Use distinct offsets:
@@ -319,7 +319,7 @@ void exerciseDenseAutomation(Module& module) {
 class NativeGUIEditBridge final : public FObject,public IComponentHandler {
  IAudioProcessor* processor_{};
 public:
- std::array<unsigned,6> starts{},updates{},ends{};
+ std::array<unsigned,11> starts{},updates{},ends{};
  bool failed{false};
  explicit NativeGUIEditBridge(IAudioProcessor* p):processor_(p){}
  tresult PLUGIN_API beginEdit(ParamID id) override {
@@ -416,7 +416,7 @@ void exerciseNativeGUIEdits(Module& module) {
  require(view!=nullptr,"Create real GUI control editor");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "GUI control editor attach");
- ViewRect rect{0,0,900,470};
+ ViewRect rect{0,0,900,650};
  require(view->onSize(&rect)==kResultOk,"GUI control host onSize");
  nativeGuiPump();
  struct SliderPoint {ParamID id;int x;int y;int width;};
@@ -505,9 +505,9 @@ void exerciseNativeGUIOptionMenus(Module& module) {
  require(view!=nullptr,"Option-menu native editor creation");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "Option-menu native editor attachment");
- ViewRect rect{0,0,900,470};
+ ViewRect rect{0,0,900,650};
  require(view->onSize(&rect)==kResultOk,
-         "Option-menu native editor 900x470 onSize");
+         "Option-menu native editor 900x650 onSize");
  nativeGuiPump();
  HWND canvas=GetWindow(parent,GW_CHILD);
  require(canvas!=nullptr,"VSTGUI child HWND for option-menu key events");
@@ -665,7 +665,7 @@ void exerciseNativeGUIMousePopups(Module& module) {
  require(view!=nullptr,"Native popup editor creation");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "Native popup editor attach");
- ViewRect rect{0,0,900,470};
+ ViewRect rect{0,0,900,650};
  require(view->onSize(&rect)==kResultOk,
          "Native popup editor host sizing");
  nativeGuiPump();
@@ -717,7 +717,7 @@ void exerciseNativeGUIMousePopups(Module& module) {
           <<"live VST3 host edits and state recall\\n";
 }
 void exerciseAttachedEditor(Module& module) {
- // The previous smoke only queried the 900x470 dimensions. That cannot
+ // The previous smoke only queried the 900x650 dimensions. That cannot
  // catch malformed child-view definitions: actually attach the VSTGUI
  // editor to an HWND and require it to create a native child window.
  Instance instance(module);
@@ -735,7 +735,7 @@ void exerciseAttachedEditor(Module& module) {
  // Simulate the VST3 host's documented onSize callback after it has
  // allocated the editor HWND. The prior native probe never performed this
  // host step, so the editor reported its initial 0x0 platform frame.
- ViewRect requested{0,0,900,470};
+ ViewRect requested{0,0,900,650};
  require(view->onSize(&requested)==kResultOk,"Host initial editor onSize callback");
  ViewRect rect{};
  const auto sizeResult=view->getSize(&rect);
@@ -1526,6 +1526,60 @@ void exerciseX3(Module& module) {
 }
 #endif
 }
+void exerciseMorpheusCubes(Module& module) {
+ for(int precision:{kSample32,kSample64}){
+  Instance host(module);
+  host.setup(precision,48000.,1024);
+  std::array<float,1024> fl{},fr{},fol{},forr{};
+  std::array<double,1024> dl{},dr{},dol{},dorr{};
+  for(int i=0;i<1024;++i){
+   const auto l=.07*std::sin(i*.053)+.023*std::cos(i*.17);
+   const auto r=.06*std::cos(i*.041)-.017*std::sin(i*.11);
+   fl[i]=static_cast<float>(l);fr[i]=static_cast<float>(r);dl[i]=l;dr[i]=r;
+  }
+  Sample32* fIn[]{fl.data(),fr.data()},*fOut[]{fol.data(),forr.data()};
+  Sample64* dIn[]{dl.data(),dr.data()},*dOut[]{dol.data(),dorr.data()};
+  AudioBusBuffers input{},output{};
+  input.numChannels=output.numChannels=2;
+  if(precision==kSample32){input.channelBuffers32=fIn;output.channelBuffers32=fOut;}
+  else{input.channelBuffers64=dIn;output.channelBuffers64=dOut;}
+  ProcessData data{};
+  data.numSamples=1024;data.numInputs=data.numOutputs=1;
+  data.inputs=&input;data.outputs=&output;
+  data.symbolicSampleSize=precision;data.processMode=kRealtime;
+  unsigned finite=0,audible=0;
+  for(int cube=0;cube<289;++cube){
+   ParameterChanges edits;
+   const std::array<ParamID,5> ids{{6,7,8,9,10}};
+   const std::array<double,5> values{{1.,cube/288.,.43,.61,.28}};
+   for(std::size_t n=0;n<ids.size();++n){
+    int32 index=0,point=0;
+    auto* q=edits.addParameterData(ids[n],index);
+    require(q&&q->addPoint(0,values[n],point)==kResultOk,
+            "Morpheus cube parameter queue");
+   }
+   data.inputParameterChanges=&edits;
+   require(host.audio->process(data)==kResultOk,
+           "Host must render every embedded Morpheus cube");
+   double difference=0.;
+   for(int n=512;n<1024;++n){
+    const auto l=precision==kSample32?static_cast<double>(fol[n]):dol[n];
+    const auto r=precision==kSample32?static_cast<double>(forr[n]):dorr[n];
+    require(std::isfinite(l)&&std::isfinite(r),
+            "All Morpheus cube renders finite");
+    const auto sourceL=precision==kSample32?static_cast<double>(fl[n]):dl[n];
+    const auto sourceR=precision==kSample32?static_cast<double>(fr[n]):dr[n];
+    difference+=std::abs(l-sourceL)+std::abs(r-sourceR);
+   }
+   ++finite;if(cube>0&&difference>0.0001)++audible;
+  }
+  require(finite==289&&audible>200,
+          "At least 200 distinct non-null cube modes must produce audible wet DSP");
+  host.stop();
+ }
+ std::cout<<"MORPHEUS NATIVE HOST PASS: all 289 cubes rendered in float/double, "
+          <<"over 200 non-null wet modes audibly different from dry\n";
+}
 int main(int argc,char** argv){
  require(argc==2||(argc==3&&std::strcmp(argv[2],"--embedded-smoke")==0),
          "Expected packaged VST3 binary path with optional --embedded-smoke");
@@ -1542,6 +1596,7 @@ int main(int argc,char** argv){
  exercise(module,kSample64);
  exerciseDenseAutomation(module);
  exerciseConcurrentStateSnapshots(module);
+ exerciseMorpheusCubes(module);
  exerciseAttachedEditor(module);
  exerciseNativeGUIEdits(module);
  exerciseNativeGUIOptionMenus(module);
