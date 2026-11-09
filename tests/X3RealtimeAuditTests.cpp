@@ -9,6 +9,9 @@
 #include <malloc.h>
 #include <new>
 #include <limits>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 
 // Instrument C++ new/new[] in this translation unit and all inline
