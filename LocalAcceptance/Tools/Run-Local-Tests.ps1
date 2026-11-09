@@ -82,9 +82,19 @@ function GenerateWave([string]$destination) {
 Write-Host '125A Z-Plane FX: Windows x64 LOCAL QA, KEIN Hardware-ASIO-Test'
 Write-Host ('Ergebnisse: '+$report)
 $manifest=Join-Path $root 'SHA256-MANIFEST.json'
+$packageManifestSha256=''
+$pluginSourceCommit=''
+$testLabSourceCommit=''
 try {
   if(-not (Test-Path -LiteralPath $manifest)){throw 'Manifest fehlt'}
   $list=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+  $packageManifestSha256=HashSha256 $manifest
+  $pluginSourceCommit=[string]$list.plugin_source_commit
+  $testLabSourceCommit=[string]$list.test_lab_source_commit
+  if($pluginSourceCommit -notmatch '^[0-9a-fA-F]{40}$' -or
+     $testLabSourceCommit -notmatch '^[0-9a-fA-F]{40}$'){
+    throw 'Source/Test Lab SHA missing from package manifest'
+  }
   $misses=0
   foreach($x in @($list.files)){
     $file=Join-Path $root ([string]$x.path)
@@ -184,6 +194,9 @@ $obj=[pscustomobject]@{
   time_utc=(Get-Date).ToUniversalTime().ToString('o')
   status=$status
   python_required=$false
+  package_manifest_sha256=$packageManifestSha256
+  plugin_source_commit=$pluginSourceCommit
+  test_lab_source_commit=$testLabSourceCommit
   actual_asio='NOT RUN'
   daw_studio_pro='NOT RUN'
   hardware_emulation='NOT VERIFIED'

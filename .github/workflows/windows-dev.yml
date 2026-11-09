@@ -265,6 +265,32 @@ jobs:
           Write-Host '[PASS] BAT, test binaries, real stereo insert P25, GUI and SHA-256 verification'
           Write-Host '[PASS] Embedded 55 modes tested without any bank files'
           Write-Host '[NOT RUN] Optional external oracle absent; physical ASIO still NOT RUN'
+      - name: Verify checklist consumes existing Lab evidence without certifying ASIO
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'package/Tools/Prepare-DAW-ASIO.ps1' -CI
+          if ($LASTEXITCODE -ne 0) { throw 'DAW preflight script failed' }
+          $items=@(Get-ChildItem 'package/Reports' -Recurse -File -Filter 'DAW-ASIO-PREFLIGHT.json')
+          if ($items.Count -ne 1) { throw 'Expected one DAW technical preflight report' }
+          $p=Get-Content -LiteralPath $items[0].FullName -Raw | ConvertFrom-Json
+          if ($p.package_integrity -ne 'PASS' -or
+              $p.universal_test_lab_technical -ne 'PASS' -or
+              $p.x3_embedded -ne 'PASS' -or
+              $p.physical_asio -ne 'NOT RUN' -or
+              $p.fender_studio_pro -ne 'NOT RUN' -or
+              $p.musical_listening -ne 'NOT RUN' -or
+              $p.release_approved -ne $false) {
+            throw 'Checklist claims unsupported Lab, ASIO or DAW evidence'
+          }
+          $check=Get-Content -LiteralPath (Join-Path $items[0].DirectoryName 'DAW-ASIO-CHECKLIST.txt') -Raw
+          if ($check -notmatch '55 X3-Filter sind als Ressourcen' -or
+              $check -notmatch 'ECHTE DSP-LFO-Telemetrie' -or
+              $check -notmatch 'Synth' -or
+              $check -match 'drei echte Bankdateien vorhanden') {
+            throw 'Stale external-bank or missing real synth/LFO instructions'
+          }
+          Write-Host '[PASS] Matching 125A Test Lab baseline, real synth/LFO checklist, ASIO/DAW NOT RUN'
       - name: Produce one self-contained owner-download ZIP (no Python needed)
         shell: pwsh
         run: |
