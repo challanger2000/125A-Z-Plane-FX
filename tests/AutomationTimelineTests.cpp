@@ -11,7 +11,9 @@ int main() {
  CHECK(t[1].offset==32&&t[1].parameter==1);
  CHECK(t[2].offset==64&&t[2].value==0.2);
  CHECK(t[3].offset==64&&t[3].value==0.8);
- CHECK(!t.add(1,6,0.1));
+ for(std::uint32_t id=6;id<zplane::AutomationTimeline::kParameterCount;++id)
+  CHECK(t.add(1,id,0.1));
+ CHECK(!t.add(1,zplane::AutomationTimeline::kParameterCount,0.1));
  for(std::size_t i=t.size();i<zplane::AutomationTimeline::kCapacity;++i)CHECK(t.add(123,3,0.1));
  t.finalize();
  CHECK(t.size()==zplane::AutomationTimeline::kCapacity);

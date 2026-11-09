@@ -31,6 +31,8 @@ die Datei 125A-DAW-REFERENCE-44100-24bit-stereo.wav.
 [ ] 08. Bypass / Wet 100% / Morph / Q ohne unkontrollierten Pegelsprung
 [ ] 09. Schnelle Filterwechsel und 5-ms-Fades ohne Haenger
 [ ] 10. VST3-Automation an Blockgrenzen (Klang/Werte)
+[ ] 11. Morpheus ON: Cube 0 Null, Cube 1, VowelSpace (43), Cube 288
+[ ] 12. Morpheus: Morph/Frequency/Transform, Filterwechsel ohne Knackser
 [ ] 11. Projekt speichern, DAW schliessen, wieder oeffnen:
          Werte, Filterbank, Automation korrekt zurueck
 [ ] 12. Hardware-ASIO mit 64, 128, 256, 512 (soweit unterstuetzt)

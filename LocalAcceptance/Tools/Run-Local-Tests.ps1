@@ -38,8 +38,9 @@ function RunExe([string]$label,[string]$file,[string[]]$argv,[string]$logname,[b
     if($code -ne 0){Verdict $label 'FAIL' ("Exit=$code, Log=$logname") $required;return $false}
     Verdict $label 'PASS' ("Exit=0, Log=$logname") $required;return $true
   } catch {
+    $message=$_.Exception.Message
     $_ | Out-String | Out-File -LiteralPath $log -Encoding UTF8
-    Verdict $label 'FAIL' ('Exception, Log='+$logname) $required
+    Verdict $label 'FAIL' ("Exception: $message, Log=$logname") $required
     return $false
   }
 }
@@ -141,6 +142,10 @@ if(Test-Path -LiteralPath $dll){
 }
 [void](RunExe 'Core DSP Unit' (Join-Path $native 'zplane_core_tests.exe') @() 'core.log' $true)
 [void](RunExe 'Automation Unit' (Join-Path $native 'zplane_automation_tests.exe') @() 'automation.log' $true)
+[void](RunExe 'Dual LFO Unit' (Join-Path $native 'zplane_dual_lfo_tests.exe') @() 'dual-lfo.log' $true)
+[void](RunExe 'Morpheus 289 Cubes Unit' (Join-Path $native 'zplane_morpheus_tests.exe') @() 'morpheus-cubes.log' $true)
+[void](RunExe 'Morpheus Independent 288 Filter Oracle' (Join-Path $native 'zplane_morpheus_oracle_tests.exe') @() 'morpheus-reference-288.log' $true)
+[void](RunExe 'Filter Display Analytic Accuracy' (Join-Path $native 'zplane_filter_display_tests.exe') @() 'filter-display-response.log' $true)
 [void](RunExe 'X3 Synthetic Fault Recovery' (Join-Path $native 'zplane_x3_adapter_tests.exe') @() 'x3-synthetic.log' $true)
 # Always test the self-contained VST3, independently of optional reference files.
 if(Test-Path -LiteralPath $dll -PathType Leaf){

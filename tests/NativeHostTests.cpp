@@ -1,6 +1,8 @@
 // Native Windows host probe against the exact staged .vst3 module.
 // Tests real VST3 factory, 32/64-bit rendering, automation and project recall.
 #include "FilterCore.h"
+#include "pluginterfaces/vst/ivstdataexchange.h"
+#include "DualLfo.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "base/source/fobject.h"
 #include "base/source/fstreamer.h"
@@ -10,7 +12,9 @@
 #include "pluginterfaces/gui/iplugview.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
+#include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "pluginterfaces/vst/ivstmessage.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -18,6 +22,7 @@
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
 #include <array>
+#include <utility>
 #include <algorithm>
 #include <chrono>
 #include <numeric>
@@ -159,13 +164,13 @@ void render(Instance& inst,int32 format,ParameterChanges* changes,bool verify){
 }
 void exerciseConcurrentStateSnapshots(Module& module) {
  // Actual staged VST3 with a live audio thread repeatedly changing ALL
- // six parameters while an independent control thread saves project state.
+ // 23 parameters while an independent control thread saves project state.
  // Each save must be one COMPLETE vector (defaults/A/B), never a mixture.
  Instance host(module);
  host.setup(kSample32,48000.,64);
- constexpr std::array<double,6> a{{0.,.15,.25,.80,0.,0.}};
- constexpr std::array<double,6> b{{1.,.85,.75,.20,1.,1./55.}};
- constexpr std::array<double,6> defaultsLocal{{0.,.5,.5,1.,0.,0.}};
+ constexpr std::array<double,23> a{{0.,.15,.25,.80,0.,0.,0.,0.,.5,.5,.5,0.,.5,0.,0.,.25,1.,0.,.5,0.,0.,.25,1.}};
+ constexpr std::array<double,23> b{{1.,.85,.75,.20,1.,1./55.,1.,43./288.,.8,.3,.6,0.,.5,0.,0.,.25,1.,0.,.5,0.,0.,.25,1.}};
+ constexpr std::array<double,23> defaultsLocal{{0.,.5,.5,1.,0.,0.,0.,0.,.5,.5,.5,0.,.5,0.,0.,.25,1.,0.,.5,0.,0.,.25,1.}};
  std::array<float,64> inL{},inR{},outL{},outR{};
  for(int i=0;i<64;++i){inL[static_cast<std::size_t>(i)]=i%7==0?.08f:.03f;}
  Sample32* input[]{inL.data(),inR.data()},*output[]{outL.data(),outR.data()};
@@ -181,7 +186,7 @@ void exerciseConcurrentStateSnapshots(Module& module) {
   for(unsigned block=0;block<5000;++block){
    ParameterChanges edits;
    const auto& values=(block%2)?a:b;
-   for(ParamID id=0;id<6;++id){
+   for(ParamID id=0;id<23;++id){
     int32 slot=0,point=0;
     auto* q=edits.addParameterData(id,slot);
     if(!q||q->addPoint(0,values[id],point)!=kResultOk) {
@@ -203,9 +208,9 @@ void exerciseConcurrentStateSnapshots(Module& module) {
   stream.rewind();
   Steinberg::IBStreamer reader(&stream,kLittleEndian);
   Steinberg::uint32 magic=0,version=0;
-  std::array<double,6> sample{};
+  std::array<double,23> sample{};
   bool valid=reader.readInt32u(magic)&&reader.readInt32u(version)&&
-    magic==0x3150585Au&&version==2;
+    magic==0x3150585Au&&version==4;
   for(auto& value:sample)
    if(valid)valid=reader.readDouble(value);
   if(!valid||!(sample==a||sample==b||sample==defaultsLocal)){
@@ -222,7 +227,7 @@ void exerciseConcurrentStateSnapshots(Module& module) {
          "Concurrent host save must never contain mixed parameter generations");
  host.stop();
  std::cout<<"NATIVE HOST PASS: concurrent 5000 real callback state edits and "
-          <<reads<<" coherent six-parameter project saves\\n";
+          <<reads<<" coherent 23-parameter project saves\\n";
 }
 void exerciseDenseAutomation(Module& module) {
  // Adversarial 4096 host events (the documented capacity). Use distinct offsets:
@@ -319,7 +324,7 @@ void exerciseDenseAutomation(Module& module) {
 class NativeGUIEditBridge final : public FObject,public IComponentHandler {
  IAudioProcessor* processor_{};
 public:
- std::array<unsigned,6> starts{},updates{},ends{};
+ std::array<unsigned,zplane::DualLfo::kParameterCount> starts{},updates{},ends{};
  bool failed{false};
  explicit NativeGUIEditBridge(IAudioProcessor* p):processor_(p){}
  tresult PLUGIN_API beginEdit(ParamID id) override {
@@ -416,7 +421,7 @@ void exerciseNativeGUIEdits(Module& module) {
  require(view!=nullptr,"Create real GUI control editor");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "GUI control editor attach");
- ViewRect rect{0,0,900,470};
+ ViewRect rect{0,0,900,1050};
  require(view->onSize(&rect)==kResultOk,"GUI control host onSize");
  nativeGuiPump();
  struct SliderPoint {ParamID id;int x;int y;int width;};
@@ -505,9 +510,9 @@ void exerciseNativeGUIOptionMenus(Module& module) {
  require(view!=nullptr,"Option-menu native editor creation");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "Option-menu native editor attachment");
- ViewRect rect{0,0,900,470};
+ ViewRect rect{0,0,900,1050};
  require(view->onSize(&rect)==kResultOk,
-         "Option-menu native editor 900x470 onSize");
+         "Option-menu native editor 900x1050 onSize");
  nativeGuiPump();
  HWND canvas=GetWindow(parent,GW_CHILD);
  require(canvas!=nullptr,"VSTGUI child HWND for option-menu key events");
@@ -517,12 +522,23 @@ void exerciseNativeGUIOptionMenus(Module& module) {
          "Seed X3 filter selection at Legacy index 0");
  nativeGuiPump();
  SetFocus(canvas);
+ require(inst.controller->getParameterCount()==static_cast<int32>(zplane::DualLfo::kParameterCount),
+         "Controller exposes all 23 original and LFO parameters");
+ // One complete keyboard traversal must cover the entire expanded editor,
+ // not the old fixed 20-tab assumption from the six-parameter GUI.
+ // Keep the strict test of real X3 edits: no direct parameter setter here.
+ const auto maximumTabs=4*inst.controller->getParameterCount();
  bool legacySelected=false,x3Selected=false;
- for(int tab=0;tab<20&&!(legacySelected&&x3Selected);++tab) {
+ for(int tab=0;tab<maximumTabs&&!(legacySelected&&x3Selected);++tab) {
   nativeGuiKey(canvas,VK_TAB);
-  const auto legacyEdits=bridge->updates[0];
-  const auto x3Edits=bridge->updates[5];
+  const auto before=bridge->updates;
+  const auto legacyEdits=before[0],x3Edits=before[5];
   nativeGuiKey(canvas,VK_DOWN);
+  for(ParamID id=0;id<bridge->updates.size();++id)
+   if(bridge->updates[id]>before[id])
+    std::cout<<"Native keyboard traversal tab="<<tab
+             <<" edited ParamID="<<id
+             <<" value="<<inst.controller->getParamNormalized(id)<<"\\n";
   if(bridge->updates[0]>legacyEdits) {
    const auto actual=inst.controller->getParamNormalized(0);
    require(std::isfinite(actual)&&std::fabs(actual-1./3.)<1.e-6,
@@ -562,7 +578,9 @@ void exerciseNativeGUIOptionMenus(Module& module) {
   std::cerr<<"Native option-menu keyboard FAIL: Legacy="<<legacySelected
            <<" X3="<<x3Selected
            <<" legacy edits="<<bridge->updates[0]
-           <<" X3 edits="<<bridge->updates[5]<<"\\n";
+           <<" X3 edits="<<bridge->updates[5]
+           <<" visited maximumTabs="<<maximumTabs
+           <<" total parameters="<<inst.controller->getParameterCount()<<"\\n";
  require(legacySelected&&x3Selected,
          "Tab focus + Down must operate both real VSTGUI COptionMenus");
  require(bridge->starts[0]==bridge->ends[0]&&bridge->starts[0]>0,
@@ -665,7 +683,7 @@ void exerciseNativeGUIMousePopups(Module& module) {
  require(view!=nullptr,"Native popup editor creation");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "Native popup editor attach");
- ViewRect rect{0,0,900,470};
+ ViewRect rect{0,0,900,1050};
  require(view->onSize(&rect)==kResultOk,
          "Native popup editor host sizing");
  nativeGuiPump();
@@ -716,8 +734,178 @@ void exerciseNativeGUIMousePopups(Module& module) {
  std::cout<<"NATIVE GUI HOST PASS: real OS mouse popups, exact Legacy/X3 entries, "
           <<"live VST3 host edits and state recall\\n";
 }
+void exerciseFilterGraphNative(Module& module) {
+ // Direct2D surfaces cannot be validated by GDI BitBlt on Windows Actions
+ // (the capture returns unchanged white/black pixels even while VSTGUI
+ // draw() updates the graph). Validate the actual custom-view creation,
+ // draw callback, and exact curve samples that drawLine consumes instead.
+ using QaFn=std::uint64_t (__cdecl*)(unsigned);
+ auto* get= reinterpret_cast<QaFn>(GetProcAddress(module.dll,"ZPlaneResponseQaGet"));
+ require(get!=nullptr,"Development-only response view paint QA API");
+ Instance host(module);
+ // Real VST3 host IConnectionPoint delivery; no direct view state writes.
+ IConnectionPoint* processorPoint=nullptr;
+ IConnectionPoint* controllerPoint=nullptr;
+ require(host.component->queryInterface(IConnectionPoint::iid,
+         reinterpret_cast<void**>(&processorPoint))==kResultOk&&processorPoint,
+         "Graph processor connection interface");
+ require(host.controller->queryInterface(IConnectionPoint::iid,
+         reinterpret_cast<void**>(&controllerPoint))==kResultOk&&controllerPoint,
+         "Graph controller connection interface");
+ IDataExchangeReceiver* telemetryReceiver=nullptr;
+ require(host.controller->queryInterface(IDataExchangeReceiver::iid,
+         reinterpret_cast<void**>(&telemetryReceiver))==kResultOk&&telemetryReceiver,
+         "Graph controller exposes official Steinberg data-exchange receiver");
+ telemetryReceiver->release();
+ require(controllerPoint->connect(processorPoint)==kResultOk,
+         "Graph controller connection");
+ require(processorPoint->connect(controllerPoint)==kResultOk,
+         "Graph processor connection");
+ host.setup(kSample32,48000.,512);
+ HWND parent=CreateWindowExW(0,L"STATIC",L"125A graphical DSP response QA",
+         WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
+         35,-330,950,930,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+ require(parent!=nullptr,"Create graph HWND");
+ ShowWindow(parent,SW_SHOWNA);UpdateWindow(parent);
+ const auto previousCreated=get(0);
+ auto* view=host.controller->createView(ViewType::kEditor);
+ require(view!=nullptr,"Create graph VST3 editor");
+ require(view->attached(parent,kPlatformTypeHWND)==kResultOk,"Graph editor attach");
+ ViewRect size{0,0,900,1050};
+ require(view->onSize(&size)==kResultOk,"Graph editor exact host size");
+ HWND canvas=GetWindow(parent,GW_CHILD);
+ require(canvas!=nullptr,"Graph real child canvas");
+ const auto repaint=[canvas]{
+  for(int pass=0;pass<8;++pass){
+   nativeGuiPump();
+   InvalidateRect(canvas,nullptr,FALSE);
+   UpdateWindow(canvas);
+  }
+ };
+ repaint();
+ require(get(0)>previousCreated&&get(1)>0,"VSTGUI must construct and paint custom curve view");
+ const auto oldDraw=get(1),legacy=get(3);
+ require(host.controller->setParamNormalized(6,1.)==kResultTrue&&
+         host.controller->setParamNormalized(7,46./288.)==kResultTrue,
+         "Activate actual Morpheus response display");
+ repaint();
+ const auto morpheus=get(3);
+ require(get(1)>oldDraw&&legacy!=morpheus,
+         "VSTGUI draw() must receive different legacy and Morpheus curve data");
+ require(host.controller->setParamNormalized(8,.08)==kResultTrue,
+         "Automate Morpheus morph in graphical view");
+ repaint();
+ const auto morphed=get(3);
+ require(morpheus!=morphed,"Morph must change actual VSTGUI plotted points");
+ host.stop();
+ host.setup(kSample32,96000.,512);
+ repaint();
+ const auto curve96=get(3);
+ require(curve96!=morphed,
+         "Actual VST3 host rate 96k must change the drawn frequency response");
+ host.stop();
+ host.setup(kSample32,48000.,512);
+ repaint();
+ require(get(3)==morphed,
+         "Host rate restoration must reproduce 48k filter-response samples");
+ require(host.controller->setParamNormalized(4,1.)==kResultTrue,
+         "Bypass for flat displayed frequency response");
+ repaint();
+ const auto bypass=get(3);
+ require(morphed!=bypass,"Bypass must redraw the flat transfer curve");
+#ifdef ZPLANE_WITH_X3_RESEARCH
+ require(host.controller->setParamNormalized(4,0.)==kResultTrue&&
+         host.controller->setParamNormalized(6,0.)==kResultTrue&&
+         host.controller->setParamNormalized(5,1./55.)==kResultTrue,
+         "Activate real X3 impulse measurement");
+ repaint();
+ const auto x3A=get(3);
+ require(host.controller->setParamNormalized(5,24./55.)==kResultTrue,
+         "Change X3 filter for its separately measured response");
+ repaint();
+ const auto x3B=get(3);
+ require(x3A!=x3B,
+         "Two X3 filters must produce different actual VSTGUI curve points");
+#endif
+ // Audio → host Data Exchange → Controller → actual VSTGUI draw.
+ // A knob movement alone must NOT simulate LFO motion; wait for real DSP.
+ auto setGraphControl=[&](ParamID id,double value) {
+  require(host.controller->setParamNormalized(id,value)==kResultTrue,
+          "Set active graph VST3 parameter");
+ };
+ setGraphControl(4,0.);
+ setGraphControl(5,0.);
+ setGraphControl(6,1.);
+ setGraphControl(7,46./288.);
+ setGraphControl(8,.3);
+ setGraphControl(11,1.);
+ setGraphControl(12,.5);
+ setGraphControl(13,1.);
+ setGraphControl(14,0.);
+ setGraphControl(15,.25);
+ setGraphControl(16,1.);
+ repaint();
+ require(get(5)==0,"No fake LFO motion before any audio processing");
+ ParameterChanges lfoEdits;
+ for(const auto& edit:std::array<std::pair<ParamID,double>,12>{{
+    {4,0.},{5,0.},{6,1.},{7,46./288.},{8,.3},
+    {11,1.},{12,.5},{13,1.},{14,0.},{15,.25},{16,1.},{17,0.}}}){
+  int32 slot=0,point=0;
+  auto* q=lfoEdits.addParameterData(edit.first,slot);
+  require(q&&q->addPoint(0,edit.second,point)==kResultOk,
+          "Create full real host LFO parameter queue");
+ }
+ std::array<float,512> inL{},inR{},outL{},outR{};
+ for(unsigned i=0;i<512;++i)
+  inL[i]=.01f+(.08f*static_cast<float>(i%7)/7.f);
+ Sample32* inChannels[]{inL.data(),inR.data()};
+ Sample32* outChannels[]{outL.data(),outR.data()};
+ AudioBusBuffers input{},output{};
+ input.numChannels=output.numChannels=2;
+ input.channelBuffers32=inChannels;output.channelBuffers32=outChannels;
+ ProcessData d{};
+ d.numSamples=512;d.numInputs=d.numOutputs=1;
+ d.inputs=&input;d.outputs=&output;
+ d.symbolicSampleSize=kSample32;d.processMode=kRealtime;
+ ProcessContext clock{};
+ clock.state=ProcessContext::kPlaying|ProcessContext::kTempoValid|
+             ProcessContext::kProjectTimeMusicValid;
+ clock.tempo=120.;
+ d.processContext=&clock;
+ const auto renderAtBeat=[&](double beat,bool first) {
+  clock.projectTimeMusic=beat;
+  for(unsigned block=0;block<12;++block){
+   d.inputParameterChanges=first&&block==0?&lfoEdits:nullptr;
+   require(host.audio->process(d)==kResultOk,"Native actual LFO audio process");
+   require(std::isfinite(outL[0]),"Native actual LFO PCM remains finite");
+  }
+  repaint();repaint();
+  require(get(5)==1,"Received real DSP modulation frame in VSTGUI");
+ };
+ renderAtBeat(.25,true);
+ const auto positive=get(3),baseCurve=get(4);
+ renderAtBeat(.75,false);
+ require(baseCurve==get(4),"Stationary base curve despite LFO phase changes");
+ require(positive!=get(3),
+         "DSP beat and LFO phase must change actual plotted frequency response");
+ require(get(2)>=4,"VSTGUI view must read controller parameter changes");
+ host.stop();
+ repaint();
+ require(get(5)==0,"No stale live motion after processor deactivation");
+ require(view->removed()==kResultOk,"Custom graph view detached without stale timer");
+ view->release();
+ require(DestroyWindow(parent)!=0,"Custom graph parent cleanup");
+ require(processorPoint->disconnect(controllerPoint)==kResultOk,
+         "Graph processor disconnection");
+ require(controllerPoint->disconnect(processorPoint)==kResultOk,
+         "Graph controller disconnection");
+ processorPoint->release();
+ controllerPoint->release();
+ std::cout<<"FILTER RESPONSE NATIVE VSTGUI PASS: custom CView constructed and drawn, "
+          <<"host 48/96k, legacy/Morpheus/morph/bypass/X3 curve data changes in draw() callback\n";
+}
 void exerciseAttachedEditor(Module& module) {
- // The previous smoke only queried the 900x470 dimensions. That cannot
+ // The previous smoke only queried the 900x1050 dimensions. That cannot
  // catch malformed child-view definitions: actually attach the VSTGUI
  // editor to an HWND and require it to create a native child window.
  Instance instance(module);
@@ -735,13 +923,13 @@ void exerciseAttachedEditor(Module& module) {
  // Simulate the VST3 host's documented onSize callback after it has
  // allocated the editor HWND. The prior native probe never performed this
  // host step, so the editor reported its initial 0x0 platform frame.
- ViewRect requested{0,0,900,470};
+ ViewRect requested{0,0,900,1050};
  require(view->onSize(&requested)==kResultOk,"Host initial editor onSize callback");
  ViewRect rect{};
  const auto sizeResult=view->getSize(&rect);
  std::cout<<"VSTGUI attached reported size: "<<rect.getWidth()<<" x "<<rect.getHeight()
           <<" result "<<sizeResult<<"\\n";
- require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==470,
+ require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==1050,
          "VSTGUI attached canvas must match host initial onSize");
  require(GetWindow(parent,GW_CHILD)!=nullptr,
          "Attached VSTGUI must create an actual native child window");
@@ -771,7 +959,7 @@ void exercise(Module& module,int32 format){
  else render<double>(i,format,&changes,true);
  Steinberg::ResizableMemoryIBStream saved;
  require(i.component->getState(&saved)==kResultOk,"Component state save");
- require(saved.getCursor()==56,"Expected state v2 size");
+ require(saved.getCursor()==192,"Expected 8-byte header plus 23 v4 doubles");
  saved.rewind();
  require(i.controller->setComponentState(&saved)==kResultOk,"Controller project recall");
  require(i.controller->getParamNormalized(4)==1.,"Controller bypass matches processor");
@@ -1526,6 +1714,185 @@ void exerciseX3(Module& module) {
 }
 #endif
 }
+void exerciseMorpheusCubes(Module& module) {
+ for(int precision:{kSample32,kSample64}){
+  Instance host(module);
+  host.setup(precision,48000.,1024);
+  std::array<float,1024> fl{},fr{},fol{},forr{};
+  std::array<double,1024> dl{},dr{},dol{},dorr{};
+  for(int i=0;i<1024;++i){
+   const auto l=.07*std::sin(i*.053)+.023*std::cos(i*.17);
+   const auto r=.06*std::cos(i*.041)-.017*std::sin(i*.11);
+   fl[i]=static_cast<float>(l);fr[i]=static_cast<float>(r);dl[i]=l;dr[i]=r;
+  }
+  Sample32* fIn[]{fl.data(),fr.data()},*fOut[]{fol.data(),forr.data()};
+  Sample64* dIn[]{dl.data(),dr.data()},*dOut[]{dol.data(),dorr.data()};
+  AudioBusBuffers input{},output{};
+  input.numChannels=output.numChannels=2;
+  if(precision==kSample32){input.channelBuffers32=fIn;output.channelBuffers32=fOut;}
+  else{input.channelBuffers64=dIn;output.channelBuffers64=dOut;}
+  ProcessData data{};
+  data.numSamples=1024;data.numInputs=data.numOutputs=1;
+  data.inputs=&input;data.outputs=&output;
+  data.symbolicSampleSize=precision;data.processMode=kRealtime;
+  unsigned finite=0,audible=0;
+  for(int cube=0;cube<289;++cube){
+   ParameterChanges edits;
+   const std::array<ParamID,5> ids{{6,7,8,9,10}};
+   const std::array<double,5> values{{1.,cube/288.,.43,.61,.28}};
+   for(std::size_t n=0;n<ids.size();++n){
+    int32 index=0,point=0;
+    auto* q=edits.addParameterData(ids[n],index);
+    require(q&&q->addPoint(0,values[n],point)==kResultOk,
+            "Morpheus cube parameter queue");
+   }
+   data.inputParameterChanges=&edits;
+   require(host.audio->process(data)==kResultOk,
+           "Host must render every embedded Morpheus cube");
+   double difference=0.;
+   for(int n=512;n<1024;++n){
+    const auto l=precision==kSample32?static_cast<double>(fol[n]):dol[n];
+    const auto r=precision==kSample32?static_cast<double>(forr[n]):dorr[n];
+    require(std::isfinite(l)&&std::isfinite(r),
+            "All Morpheus cube renders finite");
+    const auto sourceL=precision==kSample32?static_cast<double>(fl[n]):dl[n];
+    const auto sourceR=precision==kSample32?static_cast<double>(fr[n]):dr[n];
+    difference+=std::abs(l-sourceL)+std::abs(r-sourceR);
+   }
+   ++finite;if(cube>0&&difference>0.0001)++audible;
+  }
+  require(finite==289&&audible>200,
+          "At least 200 distinct non-null cube modes must produce audible wet DSP");
+  host.stop();
+ }
+ std::cout<<"MORPHEUS NATIVE HOST PASS: all 289 cubes rendered in float/double, "
+          <<"over 200 non-null wet modes audibly different from dry\n";
+}
+void exerciseLfoAudioAndLegacyState(Module& module) {
+ constexpr std::size_t kFrames=256;
+ constexpr unsigned kBlocks=72;
+ const auto renderLfo=[&](double on,double depth,double cubeOn,double x3Select,
+                          double target,int precision)->std::vector<double>{
+  Instance host(module);
+  host.setup(precision,48000.,static_cast<int32>(kFrames));
+  std::array<Sample32,kFrames> floatL{},floatR{},floatOutL{},floatOutR{};
+  std::array<Sample64,kFrames> doubleL{},doubleR{},doubleOutL{},doubleOutR{};
+  Sample32* inputs32[]{floatL.data(),floatR.data()};
+  Sample32* outputs32[]{floatOutL.data(),floatOutR.data()};
+  Sample64* inputs64[]{doubleL.data(),doubleR.data()};
+  Sample64* outputs64[]{doubleOutL.data(),doubleOutR.data()};
+  AudioBusBuffers input{},output{};
+  input.numChannels=output.numChannels=2;
+  if(precision==kSample32){
+   input.channelBuffers32=inputs32;output.channelBuffers32=outputs32;
+  }else{
+   input.channelBuffers64=inputs64;output.channelBuffers64=outputs64;
+  }
+  ProcessContext clock{};
+  clock.sampleRate=48000.;clock.tempo=120.;
+  clock.state=ProcessContext::kPlaying|ProcessContext::kTempoValid|
+              ProcessContext::kProjectTimeMusicValid;
+  ProcessData process{};
+  process.numSamples=static_cast<int32>(kFrames);
+  process.numInputs=process.numOutputs=1;
+  process.inputs=&input;process.outputs=&output;
+  process.symbolicSampleSize=precision;
+  process.processMode=kRealtime;process.processContext=&clock;
+  std::vector<double> rendered;
+  rendered.reserve(kBlocks*kFrames);
+  for(unsigned block=0;block<kBlocks;++block){
+   for(std::size_t i=0;i<kFrames;++i){
+    const auto pos=static_cast<double>(block*kFrames+i);
+    const auto l=.043*std::sin(pos*.031)+.016*std::cos(pos*.093);
+    const auto r=.039*std::cos(pos*.027)-.012*std::sin(pos*.044);
+    floatL[i]=static_cast<float>(l);floatR[i]=static_cast<float>(r);
+    doubleL[i]=l;doubleR[i]=r;
+   }
+   ParameterChanges changes;
+   if(block==0){
+    const std::array<std::pair<ParamID,double>,10> values{{
+     {6,cubeOn},{7,46./288.},{5,x3Select},{8,.5},
+     {11,on},{12,.5},{13,depth},{14,0.},{15,target},{16,1.}
+    }};
+    for(const auto& item:values){
+     int32 idx=0,point=0;
+     auto* queue=changes.addParameterData(item.first,idx);
+     require(queue!=nullptr&&queue->addPoint(0,item.second,point)==kResultOk,
+             "Dual LFO initial control queue");
+    }
+    process.inputParameterChanges=&changes;
+   } else process.inputParameterChanges=nullptr;
+   clock.projectTimeMusic=
+      static_cast<double>(block*kFrames)*clock.tempo/(60.*48000.);
+   require(host.audio->process(process)==kResultOk,
+           "LFO-hosted audio process with actual tempo and PPQ");
+   for(std::size_t i=0;i<kFrames;++i){
+    const auto y=precision==kSample32?
+       static_cast<double>(floatOutL[i]):doubleOutL[i];
+    require(std::isfinite(y)&&std::abs(y)<1.e6,
+            "Bipolar LFO-hosted PCM must remain finite");
+    rendered.push_back(y);
+   }
+  }
+  host.stop();
+  return rendered;
+ };
+ const auto checkDifferent=[](const std::vector<double>& reference,
+                               const std::vector<double>& changed,const char* reason) {
+  require(reference.size()==changed.size(),"LFO comparison buffer dimensions");
+  double delta=0.;
+  for(std::size_t i=0;i<reference.size();++i)
+   delta+=std::abs(reference[i]-changed[i]);
+  require(delta>.005,reason);
+ };
+ for(const int precision:{kSample32,kSample64}){
+  for(const double cubeOn:{0.,1.}){
+   const auto off=renderLfo(0.,0.,cubeOn,0.,.25,precision);
+   const auto zero=renderLfo(1.,0.,cubeOn,0.,.25,precision);
+   require(off==zero,
+           "Depth zero must preserve bit-identical Legacy/Morpheus VST3 PCM");
+   const auto moving=renderLfo(1.,1.,cubeOn,0.,.25,precision);
+   checkDifferent(off,moving,
+      "Morpheus/Legacy modulation must change real VST3 audio");
+  }
+#ifdef ZPLANE_WITH_X3_RESEARCH
+  const auto offX3=renderLfo(0.,0.,0.,12./55.,1.,precision);
+  const auto onX3=renderLfo(1.,1.,0.,12./55.,1.,precision);
+  checkDifferent(offX3,onX3,
+        "X3 resonance LFO must change real filter PCM");
+#endif
+ }
+ // All historical project versions must load and produce full neutral v4.
+ for(const std::uint32_t version:{1u,2u,3u}){
+  Instance host(module);
+  Steinberg::ResizableMemoryIBStream old;
+  Steinberg::IBStreamer writer(&old,kLittleEndian);
+  require(writer.writeInt32u(0x3150585Au)&&writer.writeInt32u(version),
+          "Legacy state header");
+  const auto params=version==1?5u:version==2?6u:11u;
+  for(unsigned i=0;i<params;++i)
+   require(writer.writeDouble(i==3?1.:i==1?.5:0.),
+           "Legacy v1/v2/v3 parameter fixture");
+  old.rewind();
+  require(host.component->setState(&old)==kResultOk,
+          "Old project must migrate to v4 without loss");
+  old.rewind();
+  require(host.controller->setComponentState(&old)==kResultOk,
+          "Old project controller recall");
+  for(ParamID id=11;id<=22;++id){
+   const auto value=host.controller->getParamNormalized(id);
+   const auto wanted=(id==12||id==18)?.5:
+     (id==15||id==21)?.25:(id==16||id==22)?1.:0.;
+   require(std::abs(value-wanted)<1.e-12,
+          "Old project must default both LFOs neutral");
+  }
+  Steinberg::ResizableMemoryIBStream rewritten;
+  require(host.component->getState(&rewritten)==kResultOk&&rewritten.getCursor()==192,
+          "All historical projects save as complete 23-parameter state v4");
+ }
+ std::cout<<"DUAL LFO NATIVE HOST PASS: actual Morpheus/Legacy/X3 PCM in float/double; "
+          <<"0% depth bit-identical; PPQ tempo; v1/v2/v3 state migration to v4\n";
+}
 int main(int argc,char** argv){
  require(argc==2||(argc==3&&std::strcmp(argv[2],"--embedded-smoke")==0),
          "Expected packaged VST3 binary path with optional --embedded-smoke");
@@ -1542,7 +1909,10 @@ int main(int argc,char** argv){
  exercise(module,kSample64);
  exerciseDenseAutomation(module);
  exerciseConcurrentStateSnapshots(module);
+ exerciseMorpheusCubes(module);
+ exerciseLfoAudioAndLegacyState(module);
  exerciseAttachedEditor(module);
+ exerciseFilterGraphNative(module);
  exerciseNativeGUIEdits(module);
  exerciseNativeGUIOptionMenus(module);
  exerciseNativeGUIMousePopups(module);
