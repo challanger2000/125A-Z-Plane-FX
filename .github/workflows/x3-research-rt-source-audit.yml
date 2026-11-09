@@ -1,0 +1,48 @@
+name: Research X3 DSP source audit inventory (not release)
+on:
+  push:
+    branches: [develop/v0.1.0]
+    paths:
+      - '.github/workflows/x3-research-rt-source-audit.yml'
+      - 'tools/audit_x3_research_source.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspected-immutable-archive:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch verified original research source without vendoring
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force audit-out | Out-Null
+          $url='https://raw.githubusercontent.com/noneofyourbisness/EMU-Emulator-X3-ZPlaneFilter-Research/main/emulator-x3-filter-source.zip'
+          Invoke-WebRequest -Uri $url -OutFile audit-out/research-source.zip -MaximumRetryCount 3 -RetryIntervalSec 2
+          $hash=(Get-FileHash audit-out/research-source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '91062ac20281ef0892dc9bc9696df76106c259f60d4fa7fcff4175dc5c7f3b88') {
+            throw "Changed/unreviewed original research source archive $hash"
+          }
+          Expand-Archive -Path audit-out/research-source.zip -DestinationPath audit-out/unpacked -Force
+      - name: Emit source-anchored risk inventory of actual shipped research headers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python tools/audit_x3_research_source.py audit-out/unpacked audit-out/X3-RT-SOURCE-INVENTORY.json 2>&1 |
+            Tee-Object -FilePath audit-out/X3-RT-SOURCE-INVENTORY.log
+          if ($LASTEXITCODE -ne 0) { throw 'Research source inventory was not complete' }
+          # Avoid redistributing unlicensed source archive or extracted tree.
+          Remove-Item audit-out/research-source.zip -Force
+          Remove-Item audit-out/unpacked -Recurse -Force
+      - name: Preserve human-reviewable audit evidence ONLY (not source code)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZPlane-X3-source-callpath-inventory-NOT-FULL-AUDIT
+          path: |
+            audit-out/X3-RT-SOURCE-INVENTORY.json
+            audit-out/X3-RT-SOURCE-INVENTORY.log
+          if-no-files-found: warn
+          retention-days: 7
