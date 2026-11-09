@@ -1,6 +1,7 @@
 // Native Windows host probe against the exact staged .vst3 module.
 // Tests real VST3 factory, 32/64-bit rendering, automation and project recall.
 #include "FilterCore.h"
+#include "pluginterfaces/vst/ivstdataexchange.h"
 #include "DualLfo.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "base/source/fobject.h"
@@ -21,6 +22,7 @@
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
 #include <array>
+#include <utility>
 #include <algorithm>
 #include <chrono>
 #include <numeric>
@@ -750,6 +752,11 @@ void exerciseFilterGraphNative(Module& module) {
  require(host.controller->queryInterface(IConnectionPoint::iid,
          reinterpret_cast<void**>(&controllerPoint))==kResultOk&&controllerPoint,
          "Graph controller connection interface");
+ IDataExchangeReceiver* telemetryReceiver=nullptr;
+ require(host.controller->queryInterface(IDataExchangeReceiver::iid,
+         reinterpret_cast<void**>(&telemetryReceiver))==kResultOk&&telemetryReceiver,
+         "Graph controller exposes official Steinberg data-exchange receiver");
+ telemetryReceiver->release();
  require(controllerPoint->connect(processorPoint)==kResultOk,
          "Graph controller connection");
  require(processorPoint->connect(controllerPoint)==kResultOk,
@@ -820,11 +827,74 @@ void exerciseFilterGraphNative(Module& module) {
  require(x3A!=x3B,
          "Two X3 filters must produce different actual VSTGUI curve points");
 #endif
+ // Audio → host Data Exchange → Controller → actual VSTGUI draw.
+ // A knob movement alone must NOT simulate LFO motion; wait for real DSP.
+ auto setGraphControl=[&](ParamID id,double value) {
+  require(host.controller->setParamNormalized(id,value)==kResultTrue,
+          "Set active graph VST3 parameter");
+ };
+ setGraphControl(4,0.);
+ setGraphControl(5,0.);
+ setGraphControl(6,1.);
+ setGraphControl(7,46./288.);
+ setGraphControl(8,.3);
+ setGraphControl(11,1.);
+ setGraphControl(12,.5);
+ setGraphControl(13,1.);
+ setGraphControl(14,0.);
+ setGraphControl(15,.25);
+ setGraphControl(16,1.);
+ repaint();
+ require(get(5)==0,"No fake LFO motion before any audio processing");
+ ParameterChanges lfoEdits;
+ for(const auto& edit:std::array<std::pair<ParamID,double>,12>{{
+    {4,0.},{5,0.},{6,1.},{7,46./288.},{8,.3},
+    {11,1.},{12,.5},{13,1.},{14,0.},{15,.25},{16,1.},{17,0.}}}){
+  int32 slot=0,point=0;
+  auto* q=lfoEdits.addParameterData(edit.first,slot);
+  require(q&&q->addPoint(0,edit.second,point)==kResultOk,
+          "Create full real host LFO parameter queue");
+ }
+ std::array<float,512> inL{},inR{},outL{},outR{};
+ for(unsigned i=0;i<512;++i)
+  inL[i]=.01f+(.08f*static_cast<float>(i%7)/7.f);
+ Sample32* inChannels[]{inL.data(),inR.data()};
+ Sample32* outChannels[]{outL.data(),outR.data()};
+ AudioBusBuffers input{},output{};
+ input.numChannels=output.numChannels=2;
+ input.channelBuffers32=inChannels;output.channelBuffers32=outChannels;
+ ProcessData d{};
+ d.numSamples=512;d.numInputs=d.numOutputs=1;
+ d.inputs=&input;d.outputs=&output;
+ d.symbolicSampleSize=kSample32;d.processMode=kRealtime;
+ ProcessContext clock{};
+ clock.state=ProcessContext::kPlaying|ProcessContext::kTempoValid|
+             ProcessContext::kProjectTimeMusicValid;
+ clock.tempo=120.;
+ d.processContext=&clock;
+ const auto renderAtBeat=[&](double beat,bool first) {
+  clock.projectTimeMusic=beat;
+  for(unsigned block=0;block<12;++block){
+   d.inputParameterChanges=first&&block==0?&lfoEdits:nullptr;
+   require(host.audio->process(d)==kResultOk,"Native actual LFO audio process");
+   require(std::isfinite(outL[0]),"Native actual LFO PCM remains finite");
+  }
+  repaint();repaint();
+  require(get(5)==1,"Received real DSP modulation frame in VSTGUI");
+ };
+ renderAtBeat(.25,true);
+ const auto positive=get(3),baseCurve=get(4);
+ renderAtBeat(.75,false);
+ require(baseCurve==get(4),"Stationary base curve despite LFO phase changes");
+ require(positive!=get(3),
+         "DSP beat and LFO phase must change actual plotted frequency response");
  require(get(2)>=4,"VSTGUI view must read controller parameter changes");
+ host.stop();
+ repaint();
+ require(get(5)==0,"No stale live motion after processor deactivation");
  require(view->removed()==kResultOk,"Custom graph view detached without stale timer");
  view->release();
  require(DestroyWindow(parent)!=0,"Custom graph parent cleanup");
- host.stop();
  require(processorPoint->disconnect(controllerPoint)==kResultOk,
          "Graph processor disconnection");
  require(controllerPoint->disconnect(processorPoint)==kResultOk,

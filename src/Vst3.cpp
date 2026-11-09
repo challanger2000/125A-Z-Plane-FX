@@ -2,6 +2,8 @@
 #include "AutomationTimeline.h"
 #include "MorpheusFilter.h"
 #include "DualLfo.h"
+#include "ResponseTelemetry.h"
+#include "public.sdk/source/vst/utility/dataexchange.h"
 #ifdef ZPLANE_WITH_X3_RESEARCH
 #include "X3ResearchAdapter.h"
 #include "EmbeddedX3Resources.h"
@@ -26,6 +28,8 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <memory>
+#include <exception>
 #include "FilterResponseView.h"
 
 namespace zplane {
@@ -141,6 +145,8 @@ class Processor final : public AudioEffect {
  bool cubeReady_{false};
  std::uint64_t freeSamples_{0};
  double fallbackBeats_{0.};
+ std::unique_ptr<DataExchangeHandler> dataExchange_{};
+ std::uint64_t telemetryElapsed_{0};
  template<typename Sample>
  void renderOriginal(const Sample* il,const Sample* ir,Sample* ol,Sample* orr,
                      std::uint32_t frames,bool useX3) noexcept {
@@ -234,8 +240,31 @@ class Processor final : public AudioEffect {
 public:
  tresult PLUGIN_API connect(IConnectionPoint* other) override {
   const auto rc=AudioEffect::connect(other);
-  if(rc==kResultOk)sendDisplayRate();
+  if(rc!=kResultOk)return rc;
+  try {
+   auto configuration=[](DataExchangeHandler::Config& c,const ProcessSetup&) {
+    c.blockSize=static_cast<uint32>(sizeof(ResponseTelemetry));
+    c.numBlocks=8;
+    c.alignment=32;
+    c.userContextID=0x5A50u;
+    return true;
+   };
+   dataExchange_=std::make_unique<DataExchangeHandler>(this,configuration);
+   dataExchange_->onConnect(other,getHostContext());
+  }catch(const std::exception&){
+   dataExchange_.reset();
+   (void)AudioEffect::disconnect(other);
+   return kOutOfMemory;
+  }
+  sendDisplayRate();
   return rc;
+ }
+ tresult PLUGIN_API disconnect(IConnectionPoint* other) override {
+  if(dataExchange_){
+   dataExchange_->onDisconnect(other);
+   dataExchange_.reset();
+  }
+  return AudioEffect::disconnect(other);
  }
  Processor(){
   setControllerClass(kController);
@@ -282,7 +311,7 @@ public:
    rate_=setup.sampleRate;
    sendDisplayRate(); // setupProcessing is on the host control thread
    effectiveCutoff_=params_[kCutoff];effectiveQ_=params_[kQuality];
-   freeSamples_=0;fallbackBeats_=0.;
+   freeSamples_=0;fallbackBeats_=0.;telemetryElapsed_=0;
    dsp_.reset();
    dsp_.configure(rate_,legacySettings());
    morpheus_.reset(rate_);
@@ -297,6 +326,7 @@ public:
  }
  tresult PLUGIN_API setProcessing(TBool) override {return kResultOk;}
  tresult PLUGIN_API setActive(TBool active) override {
+  if(active&&dataExchange_)dataExchange_->onActivate(processSetup);
   if(!active){
    freeSamples_=0;fallbackBeats_=0.;
    effectiveCutoff_=params_[kCutoff];effectiveQ_=params_[kQuality];
@@ -309,7 +339,9 @@ public:
    familyLeft_=0;familyReady_=false;
 #endif
   }
-  return AudioEffect::setActive(active);
+  const auto rc=AudioEffect::setActive(active);
+  if((!active||rc!=kResultOk)&&dataExchange_)dataExchange_->onDeactivate();
+  return rc;
  }
  uint32 PLUGIN_API getTailSamples() override {
   // The resonant IIR has a decaying but potentially long impulse response.
@@ -367,6 +399,8 @@ public:
   const DualLfo::Clock clock{ppqValid?context->projectTimeMusic:fallbackBeats_,bpm};
   const auto sampleBase=freeSamples_;
   const auto quantum=DualLfo::quantum(rate_);
+  ResponseTelemetry frame{};
+  frame.sampleRate=rate_;
   std::uint32_t cursor=0;
   std::size_t event=0;
   while(cursor<n){
@@ -429,6 +463,12 @@ public:
     }
     if(renderX3)length=std::min(length,x3_.samplesToQueuedTransition());
 #endif
+    if(cursor+length==n){
+     frame.renderedFrames=sampleBase+n;
+     frame.modulationActive=modActive?1u:0u;
+     frame.effective=mod;
+     for(std::size_t i=0;i<frame.base.size();++i)frame.base[i]=params_[i];
+    }
     if(data.symbolicSampleSize==kSample32)
      renderProduct(in.channelBuffers32[0]+cursor,in.channelBuffers32[1]+cursor,
                    out.channelBuffers32[0]+cursor,out.channelBuffers32[1]+cursor,
@@ -447,6 +487,23 @@ public:
     params_[timeline[event].parameter]=timeline[event].value;++event;
   }
   publishParams();
+  // Optional best-effort UI telemetry; never blocks the audio callback.
+  // A dropped/unsupported queue must not change the sounding filter.
+  const auto period=static_cast<std::uint64_t>(
+    std::clamp(std::floor(rate_/15.),1.,1000000.));
+  telemetryElapsed_+=n;
+  if(telemetryElapsed_>=period){
+   telemetryElapsed_%=period;
+   if(dataExchange_){
+    const auto block=dataExchange_->getCurrentOrNewBlock();
+    if(block.blockID!=InvalidDataExchangeBlockID){
+     if(block.data&&block.size>=sizeof(frame)){
+      std::memcpy(block.data,&frame,sizeof(frame));
+      (void)dataExchange_->sendCurrentBlock();
+     }else (void)dataExchange_->discardCurrentBlock();
+    }
+   }
+  }
   out.silenceFlags=0;return kResultOk;
  }
  tresult PLUGIN_API getState(IBStream* stream) override {
@@ -482,11 +539,38 @@ public:
   return kResultOk;
  }
 };
-class Controller final : public EditController, public VSTGUI::VST3EditorDelegate {
+class Controller final : public EditController, public VSTGUI::VST3EditorDelegate,
+                         public IDataExchangeReceiver {
  std::atomic<double> displayRate_{response::kRate};
  std::atomic<bool> displayRateKnown_{false};
+ ResponseTelemetryMailbox telemetry_{};
+ DataExchangeReceiverHandler receiver_{this};
 public:
+ void PLUGIN_API queueOpened(DataExchangeUserContextID id,uint32 size,
+                             TBool& background) override {
+  background=false;
+  if(id==0x5A50u)telemetry_.clear();
+  (void)size;
+ }
+ void PLUGIN_API queueClosed(DataExchangeUserContextID id) override {
+  if(id==0x5A50u)telemetry_.clear();
+ }
+ void PLUGIN_API onDataExchangeBlocksReceived(DataExchangeUserContextID id,
+            uint32 count,DataExchangeBlock* blocks,TBool) override {
+  if(id!=0x5A50u||!blocks)return;
+  for(uint32 i=0;i<count;++i){
+   if(!blocks[i].data||blocks[i].size<sizeof(ResponseTelemetry))continue;
+   ResponseTelemetry packet{};
+   std::memcpy(&packet,blocks[i].data,sizeof(packet));
+   telemetry_.publish(packet);
+  }
+ }
+ DEFINE_INTERFACES
+  DEF_INTERFACE(IDataExchangeReceiver)
+ END_DEFINE_INTERFACES(EditController)
+ DELEGATE_REFCOUNT(EditController)
  tresult PLUGIN_API notify(IMessage* message) override {
+  if(message&&message->getMessageID()&&receiver_.onMessage(message))return kResultOk;
   if(message&&message->getMessageID()&&
      std::strcmp(message->getMessageID(),kDisplayRateMessage)==0){
    double rate=0.;
@@ -505,7 +589,7 @@ public:
       VSTGUI::VST3Editor*) override {
   if(!name||std::strcmp(name,"125AFilterResponse")!=0)return nullptr;
   return new FilterResponseView(VSTGUI::CRect(0.,0.,830.,178.),this,
-                                &displayRate_,&displayRateKnown_);
+                                &displayRate_,&displayRateKnown_,&telemetry_);
  }
  IPlugView* PLUGIN_API createView(FIDString name) override {
   if(!name||std::strcmp(name,ViewType::kEditor)!=0)return nullptr;
@@ -942,6 +1026,8 @@ ZPlaneResponseQaGet(unsigned field) noexcept {
   case 1:return drawn.load(std::memory_order_acquire);
   case 2:return updated.load(std::memory_order_acquire);
   case 3:return curveSignature.load(std::memory_order_acquire);
+  case 4:return baseSignature.load(std::memory_order_acquire);
+  case 5:return live.load(std::memory_order_acquire);
   default:return 0;
  }
 }

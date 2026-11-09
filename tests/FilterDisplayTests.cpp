@@ -1,4 +1,5 @@
 #include "FilterResponseMath.h"
+#include "ResponseTelemetry.h"
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -54,6 +55,44 @@ int main(){
  CHECK(!ok); // X3 path is supplied by the dedicated impulse measurement view
  CHECK(frequency(0)==20.);
  CHECK(frequency(kPoints-1)>19999.);
+ // Independently verify the emitted DSP result can drive a genuinely
+ // different response curve, without giving the preview its own LFO clock.
+ zplane::DualLfo::Params actual{};
+ actual.fill(0.);
+ for(std::size_t i=0;i<11;++i)actual[i]=p[i];
+ actual[4]=0.;actual[6]=1.;actual[7]=46./288.;actual[8]=.3;
+ actual[11]=1.;actual[12]=.5;actual[13]=1.;
+ actual[14]=0.;actual[15]=.25;actual[16]=1.;
+ zplane::ResponseTelemetry packet{};
+ packet.sampleRate=48000.;
+ packet.renderedFrames=1024;
+ for(std::size_t i=0;i<11;++i)packet.base[i]=actual[i];
+ packet.effective=zplane::DualLfo::evaluate(actual,1024,48000.,{.25,120.},0);
+ packet.modulationActive=1;
+ CHECK(zplane::validTelemetry(packet));
+ CHECK(packet.effective.morph>packet.base[8]+.45);
+ zplane::ResponseTelemetryMailbox mailbox;
+ zplane::ResponseTelemetry received{};
+ CHECK(!mailbox.read(received));
+ mailbox.publish(packet);
+ CHECK(mailbox.read(received)&&received.renderedFrames==1024);
+ CHECK(received.base[8]==.3&&received.effective.morph==packet.effective.morph);
+ auto graphBase=received.base;
+ auto graphTarget=received.base;
+ graphTarget[8]=received.effective.morph;
+ const auto gb=computeAnalytic(graphBase,ok);
+ CHECK(ok);
+ const auto gt=computeAnalytic(graphTarget,ok);
+ CHECK(ok);
+ double changed=0.;
+ for(std::size_t i=0;i<kPoints;++i)changed+=std::abs(gb[i]-gt[i]);
+ CHECK(changed>1.);
+ mailbox.clear();
+ CHECK(!mailbox.read(received));
+ packet.magic=0;
+ CHECK(!zplane::validTelemetry(packet));
+ mailbox.publish(packet);
+ CHECK(!mailbox.read(received));
  std::puts("FILTER DISPLAY PASS: host 48/96k transfer and Nyquist mask, wet/bypass, null identity, Morpheus modulation, X3 no-fake gate, log axis");
  return EXIT_SUCCESS;
 }

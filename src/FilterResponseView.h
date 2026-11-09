@@ -3,6 +3,7 @@
 // X3: FFT of an impulse passed through the SAME research DSP adapter that
 // renders audio. The impulse response is finite-window approximated (8192).
 #include "FilterResponseMath.h"
+#include "ResponseTelemetry.h"
 #include "vstgui/lib/cview.h"
 #include "vstgui/lib/cdrawcontext.h"
 #include "vstgui/lib/cvstguitimer.h"
@@ -24,18 +25,19 @@
 namespace zplane {
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
 namespace response_qa {
-inline std::atomic<std::uint64_t> created{0},drawn{0},updated{0},curveSignature{0};
+inline std::atomic<std::uint64_t> created{0},drawn{0},updated{0},curveSignature{0},baseSignature{0},live{0};
 }
 #endif
 class FilterResponseView final : public VSTGUI::CView {
  Steinberg::Vst::EditController* controller_{};
  const std::atomic<double>* hostRate_{};
  const std::atomic<bool>* hostRateKnown_{};
+ const ResponseTelemetryMailbox* telemetry_{};
  double sampleRate_{response::kRate};
  bool actualRate_{false};
- response::Params parameters_{};
- response::Curve db_{};
- bool haveParameters_{false},valid_{false};
+ response::Params parameters_{},effective_{};
+ response::Curve db_{},baseDb_{};
+ bool haveParameters_{false},valid_{false},baseValid_{false},modulating_{false};
  VSTGUI::SharedPointer<VSTGUI::CVSTGUITimer> timer_{};
 #ifdef ZPLANE_WITH_X3_RESEARCH
  std::unique_ptr<X3ResearchAdapter> x3_;
@@ -76,17 +78,17 @@ class FilterResponseView final : public VSTGUI::CView {
    }
   }
  }
- bool refreshX3() {
+ bool refreshX3(const response::Params& source,response::Curve& destination) {
   if(!x3Available_||!x3_||
      sampleRate_>static_cast<double>(std::numeric_limits<unsigned>::max()))return false;
   const auto index=static_cast<unsigned>(
-    std::clamp(std::floor(response::clamp01(parameters_[5])*55.+.5),0.,55.));
+    std::clamp(std::floor(response::clamp01(source[5])*55.+.5),0.,55.));
   if(index==0)return false;
   x3_->reset();
   const auto rounded=static_cast<unsigned>(std::llround(sampleRate_));
   if(std::abs(sampleRate_-rounded)>.01)return false;
-  if(!x3_->set(index,static_cast<float>(response::clamp01(parameters_[1])),
-                       static_cast<float>(response::clamp01(parameters_[2])),rounded))
+  if(!x3_->set(index,static_cast<float>(response::clamp01(source[1])),
+                       static_cast<float>(response::clamp01(source[2])),rounded))
     return false;
   std::fill(input_.begin(),input_.end(),0.f);
   std::fill(output_.begin(),output_.end(),0.f);
@@ -98,61 +100,81 @@ class FilterResponseView final : public VSTGUI::CView {
    spectrum_[i]={static_cast<double>(output_[i])*10.,0.};
   }
   fft(spectrum_);
-  for(std::size_t i=0;i<db_.size();++i){
+  for(std::size_t i=0;i<destination.size();++i){
    const auto hz=response::frequency(i);
    if(hz>=sampleRate_*.5){
-    db_[i]=std::numeric_limits<float>::quiet_NaN();
+    destination[i]=std::numeric_limits<float>::quiet_NaN();
     continue;
    }
    const auto bin=hz*kFftSize/sampleRate_;
    const auto lo=std::min(static_cast<std::size_t>(bin),kFftSize/2-1);
    const auto alpha=std::clamp(bin-lo,0.,1.);
    const auto h=spectrum_[lo]*(1.-alpha)+spectrum_[lo+1]*alpha;
-   db_[i]=response::levelDb(response::wetTransfer(h,parameters_));
+   destination[i]=response::levelDb(response::wetTransfer(h,source));
   }
   return true;
  }
 #endif
+ void calculate(const response::Params& p,response::Curve& curve,bool& valid){
+#ifdef ZPLANE_WITH_X3_RESEARCH
+  if(p[6]<.5&&p[5]>=1./110.){
+   if(p[4]>=.5||p[3]<=0.){
+    curve.fill(0.f);valid=true;
+   }else valid=refreshX3(p,curve);
+   return;
+  }
+#endif
+  curve=response::computeAnalytic(p,valid,sampleRate_);
+ }
  void updateFromController(){
   if(!controller_)return;
-  response::Params next{};
-  for(std::size_t i=0;i<next.size();++i)
-   next[i]=response::clamp01(controller_->getParamNormalized(
+  response::Params base{};
+  for(std::size_t i=0;i<base.size();++i)
+   base[i]=response::clamp01(controller_->getParamNormalized(
        static_cast<Steinberg::Vst::ParamID>(i)));
   const bool known=hostRateKnown_&&hostRateKnown_->load(std::memory_order_acquire);
   const auto reported=known&&hostRate_?hostRate_->load(std::memory_order_relaxed):response::kRate;
   const auto newRate=std::isfinite(reported)&&reported>0.?reported:response::kRate;
-  if(haveParameters_&&next==parameters_&&sampleRate_==newRate&&actualRate_==known)return;
+  auto target=base;
+  bool live=false;
+  ResponseTelemetry packet{};
+  // Live curve may only use values that the audio engine actually used.
+  // Avoid showing previous-block telemetry after a fresh GUI/host edit.
+  if(telemetry_&&telemetry_->read(packet)&&packet.modulationActive!=0&&
+     std::abs(packet.sampleRate-newRate)<1.e-6){
+   bool sameBase=true;
+   for(std::size_t i=0;i<base.size();++i)
+    if(std::abs(base[i]-packet.base[i])>1.e-7){sameBase=false;break;}
+   if(sameBase){
+    target[8]=packet.effective.morph;
+    target[9]=packet.effective.frequency;
+    target[10]=packet.effective.transform;
+    target[1]=packet.effective.x3Morph;
+    target[2]=packet.effective.x3Q;
+    live=true;
+   }
+  }
+  if(haveParameters_&&base==parameters_&&target==effective_&&
+     sampleRate_==newRate&&actualRate_==known&&modulating_==live)return;
   haveParameters_=true;
-  parameters_=next;
-  sampleRate_=newRate;
-  actualRate_=known;
-  valid_=false;
+  parameters_=base;effective_=target;sampleRate_=newRate;
+  actualRate_=known;modulating_=live;
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
   response_qa::updated.fetch_add(1,std::memory_order_relaxed);
 #endif
-#ifdef ZPLANE_WITH_X3_RESEARCH
-  if(parameters_[6]<.5&&parameters_[5]>=1./110.){
-   // Bypass is exact, no DSP measurement needed.
-   if(parameters_[4]>=.5||parameters_[3]<=0.){
-    db_.fill(0.f);valid_=true;
-   }else{
-    valid_=refreshX3();
-   }
-  }else
-#endif
-  {
-   db_=response::computeAnalytic(parameters_,valid_,sampleRate_);
-  }
+  calculate(effective_,db_,valid_);
+  if(modulating_)calculate(parameters_,baseDb_,baseValid_);
+  else {baseDb_=db_;baseValid_=valid_;}
   invalid();
  }
 public:
  explicit FilterResponseView(const VSTGUI::CRect& rect,
                              Steinberg::Vst::EditController* controller,
                              const std::atomic<double>* hostRate,
-                             const std::atomic<bool>* hostRateKnown)
+                             const std::atomic<bool>* hostRateKnown,
+                             const ResponseTelemetryMailbox* telemetry)
    : VSTGUI::CView(rect),controller_(controller),hostRate_(hostRate),
-     hostRateKnown_(hostRateKnown) {
+     hostRateKnown_(hostRateKnown),telemetry_(telemetry) {
   setMouseEnabled(false);
 #ifdef ZPLANE_WITH_X3_RESEARCH
   x3_=std::make_unique<X3ResearchAdapter>();
@@ -212,31 +234,45 @@ public:
    setDirty(false);
    return;
   }
-  context->setFrameColor(VSTGUI::CColor{112,220,172});
-  context->setLineWidth(2.);
-  for(std::size_t i=1;i<db_.size();++i){
-   if(!std::isfinite(db_[i-1])||!std::isfinite(db_[i]))continue;
-   const auto previous=std::clamp(static_cast<double>(db_[i-1]),-48.,24.);
-   const auto current=std::clamp(static_cast<double>(db_[i]),-48.,24.);
-   const auto x1=left+width*static_cast<double>(i-1)/(db_.size()-1);
-   const auto x2=left+width*static_cast<double>(i)/(db_.size()-1);
-   const auto y1=bottom-(previous+48.)/72.*height;
-   const auto y2=bottom-(current+48.)/72.*height;
-   context->drawLine(VSTGUI::CPoint(x1,y1),VSTGUI::CPoint(x2,y2));
+  const auto drawCurve=[&](const response::Curve& curve,
+                          const VSTGUI::CColor& color,double widthPx) {
+   context->setFrameColor(color);
+   context->setLineWidth(widthPx);
+   for(std::size_t i=1;i<curve.size();++i){
+    if(!std::isfinite(curve[i-1])||!std::isfinite(curve[i]))continue;
+    const auto previous=std::clamp(static_cast<double>(curve[i-1]),-48.,24.);
+    const auto current=std::clamp(static_cast<double>(curve[i]),-48.,24.);
+    const auto x1=left+width*static_cast<double>(i-1)/(curve.size()-1);
+    const auto x2=left+width*static_cast<double>(i)/(curve.size()-1);
+    const auto y1=bottom-(previous+48.)/72.*height;
+    const auto y2=bottom-(current+48.)/72.*height;
+    context->drawLine(VSTGUI::CPoint(x1,y1),VSTGUI::CPoint(x2,y2));
+   }
+  };
+  if(modulating_&&baseValid_){
+   drawCurve(baseDb_,VSTGUI::CColor{78,109,120},1.);
+   context->setFontColor(VSTGUI::CColor{160,178,192});
+   context->drawString("BASE / DSP LFO TARGET",
+                       VSTGUI::CPoint(right-190.,top-9.));
   }
+  drawCurve(db_,VSTGUI::CColor{112,220,172},2.);
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
   // Deterministically fingerprint exactly the curve samples supplied to
   // drawLine(), not the unreliable GDI BitBlt of a Direct2D surface.
-  std::uint64_t signature=14695981039346656037ull;
-  for(const auto db:db_){
-   const auto scaled=std::isfinite(db)?
-      std::clamp(std::lround(db*1000.f),-48000l,24000l):std::numeric_limits<std::int32_t>::min();
-   signature^=static_cast<std::uint32_t>(scaled);
-   signature*=1099511628211ull;
-  }
-  signature^=static_cast<std::uint64_t>(valid_?1u:0u);
-  signature*=1099511628211ull;
-  response_qa::curveSignature.store(signature,std::memory_order_release);
+  const auto signature=[](const response::Curve& curve,bool valid) {
+   std::uint64_t result=14695981039346656037ull;
+   for(const auto db:curve){
+    const auto scaled=std::isfinite(db)?
+       std::clamp(std::lround(db*1000.f),-48000l,24000l):std::numeric_limits<std::int32_t>::min();
+    result^=static_cast<std::uint32_t>(scaled);
+    result*=1099511628211ull;
+   }
+   result^=static_cast<std::uint64_t>(valid?1u:0u);
+   return result*1099511628211ull;
+  };
+  response_qa::curveSignature.store(signature(db_,valid_),std::memory_order_release);
+  response_qa::baseSignature.store(signature(baseDb_,baseValid_),std::memory_order_release);
+  response_qa::live.store(modulating_?1u:0u,std::memory_order_release);
   response_qa::drawn.fetch_add(1,std::memory_order_release);
 #endif
   setDirty(false);
