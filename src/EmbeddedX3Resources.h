@@ -18,7 +18,7 @@ class EmbeddedX3Resources final {
  std::filesystem::path temporary_{};
  static bool copyResource(HMODULE dll,unsigned identifier,const wchar_t* filename,
                           DWORD expectedSize,const std::filesystem::path& dir) {
-  const auto found=FindResourceW(dll,MAKEINTRESOURCEW(identifier),RT_RCDATA);
+  const auto found=FindResourceW(dll,MAKEINTRESOURCEW(identifier),MAKEINTRESOURCEW(10));
   if(!found||SizeofResource(dll,found)!=expectedSize)return false;
   const auto resource=LoadResource(dll,found);
   if(!resource)return false;
