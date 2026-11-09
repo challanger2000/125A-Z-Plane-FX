@@ -1032,6 +1032,7 @@ ZPlaneResponseQaGet(unsigned field) noexcept {
   case 7:return x3Computations.load(std::memory_order_acquire);
   case 8:return graphComputeMicroseconds.load(std::memory_order_acquire);
   case 9:return graphComputeMaxMicroseconds.load(std::memory_order_acquire);
+  case 10:return viewsAlive.load(std::memory_order_acquire);
   default:return 0;
  }
 }

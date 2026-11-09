@@ -28,6 +28,7 @@ namespace zplane {
 namespace response_qa {
 inline std::atomic<std::uint64_t> created{0},drawn{0},updated{0},curveSignature{0},baseSignature{0},live{0};
 inline std::atomic<std::uint64_t> baseComputations{0},x3Computations{0},graphComputeMicroseconds{0},graphComputeMaxMicroseconds{0};
+inline std::atomic<std::uint64_t> viewsAlive{0};
 }
 #endif
 class FilterResponseView final : public VSTGUI::CView {
@@ -212,6 +213,7 @@ public:
 #endif
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
   response_qa::created.fetch_add(1,std::memory_order_relaxed);
+  response_qa::viewsAlive.fetch_add(1,std::memory_order_relaxed);
 #endif
   updateFromController();
   timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>(
@@ -220,6 +222,9 @@ public:
  ~FilterResponseView() noexcept override {
   if(timer_)timer_->stop();
   timer_=nullptr;
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  response_qa::viewsAlive.fetch_sub(1,std::memory_order_relaxed);
+#endif
  }
  void draw(VSTGUI::CDrawContext* context) override {
   if(!context)return;

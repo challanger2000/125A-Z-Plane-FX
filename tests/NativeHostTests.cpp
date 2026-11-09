@@ -945,6 +945,177 @@ void exerciseFilterGraphNative(Module& module) {
  std::cout<<"FILTER RESPONSE NATIVE VSTGUI PASS: custom CView constructed and drawn, "
           <<"host 48/96k, legacy/Morpheus/morph/bypass/X3 curve data changes in draw() callback\n";
 }
+
+void exerciseMultipleLiveGraphEditors(Module& module) {
+ // This is a native HWND + actual VST3 Data Exchange/PCM regression. GUI
+ // messages and audio are interleaved on one test thread; NOT a paced ASIO
+ // test, concurrency stress certificate or visual pixel inspection.
+ using QaFn=std::uint64_t (__cdecl*)(unsigned);
+ const auto get=reinterpret_cast<QaFn>(GetProcAddress(module.dll,"ZPlaneResponseQaGet"));
+ require(get!=nullptr,"Multi-editor development-only QA interface");
+ const auto baselineViews=get(10);
+ Instance first(module),second(module);
+ std::array<Instance*,2> hosts{{&first,&second}};
+ std::array<IConnectionPoint*,2> processorPoints{},controllerPoints{};
+ const std::array<double,2> x3Modes{{1./55.,24./55.}};
+ for(std::size_t index=0;index<hosts.size();++index){
+  auto& h=*hosts[index];
+  require(h.component->queryInterface(IConnectionPoint::iid,
+     reinterpret_cast<void**>(&processorPoints[index]))==kResultOk&&processorPoints[index],
+     "Multi-editor processor connection");
+  require(h.controller->queryInterface(IConnectionPoint::iid,
+     reinterpret_cast<void**>(&controllerPoints[index]))==kResultOk&&controllerPoints[index],
+     "Multi-editor controller connection");
+  require(controllerPoints[index]->connect(processorPoints[index])==kResultOk,
+     "Multi-editor controller-to-processor connection");
+  require(processorPoints[index]->connect(controllerPoints[index])==kResultOk,
+     "Multi-editor processor-to-controller connection");
+  h.setup(kSample32,48000.,512);
+  const std::array<std::pair<ParamID,double>,7> controls{{
+    {4,0.},{5,x3Modes[index]},{6,0.},
+    {11,1.},{12,.5},{13,1.},{15,.25}}};
+  for(const auto& [id,value]:controls)
+   require(h.controller->setParamNormalized(id,value)==kResultTrue,
+           "Multi-editor live DSP/GUI control");
+ }
+ struct OpenedEditor {HWND parent{};HWND canvas{};IPlugView* view{};};
+ const auto attach=[&](Instance& h,int left) {
+  OpenedEditor out{};
+  out.parent=CreateWindowExW(0,L"STATIC",L"125A multi-editor life QA",
+    WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,left,-330,950,930,
+    nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+  require(out.parent!=nullptr,"Multi-editor create HWND");
+  ShowWindow(out.parent,SW_SHOWNA);UpdateWindow(out.parent);
+  out.view=h.controller->createView(ViewType::kEditor);
+  require(out.view!=nullptr,"Multi-editor create view");
+  require(out.view->attached(out.parent,kPlatformTypeHWND)==kResultOk,
+          "Multi-editor attach VSTGUI");
+  ViewRect dimensions{0,0,900,1050};
+  require(out.view->onSize(&dimensions)==kResultOk,
+          "Multi-editor host onSize");
+  out.canvas=GetWindow(out.parent,GW_CHILD);
+  require(out.canvas!=nullptr,"Multi-editor child canvas");
+  return out;
+ };
+ const auto detach=[&](OpenedEditor& editor) {
+  require(editor.view&&editor.view->removed()==kResultOk,
+          "Multi-editor clean VSTGUI detach");
+  editor.view->release();editor.view=nullptr;
+  require(DestroyWindow(editor.parent)!=0,
+          "Multi-editor destroy parent");
+  editor.parent=nullptr;editor.canvas=nullptr;
+ };
+ const auto submitAudio=[&](Instance& h,double filter,double beat) {
+  ParameterChanges edits;
+  const std::array<std::pair<ParamID,double>,7> params{{
+    {4,0.},{5,filter},{6,0.},
+    {11,1.},{12,.5},{13,1.},{15,.25}}};
+  for(const auto& [id,value]:params){
+   int32 slot=0,point=0;
+   auto* q=edits.addParameterData(id,slot);
+   require(q&&q->addPoint(0,value,point)==kResultOk,
+           "Multi-editor host parameter point");
+  }
+  std::array<float,512> inL{},inR{},outL{},outR{};
+  for(std::size_t i=0;i<inL.size();++i){
+   inL[i]=.025f+static_cast<float>(i%9)*.002f;
+   inR[i]=-.03f+static_cast<float>(i%7)*.002f;
+  }
+  Sample32* ins[]{inL.data(),inR.data()};
+  Sample32* outs[]{outL.data(),outR.data()};
+  AudioBusBuffers input{},output{};
+  input.numChannels=output.numChannels=2;
+  input.channelBuffers32=ins;output.channelBuffers32=outs;
+  ProcessContext clock{};
+  clock.state=ProcessContext::kPlaying|ProcessContext::kTempoValid|
+             ProcessContext::kProjectTimeMusicValid;
+  clock.tempo=120.;clock.projectTimeMusic=beat;
+  ProcessData d{};
+  d.numSamples=512;d.numInputs=d.numOutputs=1;
+  d.inputs=&input;d.outputs=&output;d.processContext=&clock;
+  d.symbolicSampleSize=kSample32;d.processMode=kRealtime;
+  for(unsigned block=0;block<12;++block){
+   d.inputParameterChanges=block==0?&edits:nullptr;
+   require(h.audio->process(d)==kResultOk,
+           "Multi-editor actual LFO audio callback");
+   require(std::isfinite(outL[0])&&std::isfinite(outR[0]),
+           "Multi-editor nonbroken stereo output");
+  }
+ };
+ using Clock=std::chrono::steady_clock;
+ std::vector<double> redrawMilliseconds;
+ redrawMilliseconds.reserve(24);
+ const auto paint=[&](OpenedEditor& editor) {
+  // Process timers, then synchronously repaint THIS native child last.
+  nativeGuiPump();
+  for(int pass=0;pass<4;++pass){
+   InvalidateRect(editor.canvas,nullptr,FALSE);
+   UpdateWindow(editor.canvas);
+  }
+  const auto before=get(1);
+  const auto t0=Clock::now();
+  InvalidateRect(editor.canvas,nullptr,FALSE);
+  UpdateWindow(editor.canvas);
+  const auto t1=Clock::now();
+  redrawMilliseconds.push_back(std::chrono::duration<double,std::milli>(t1-t0).count());
+  require(get(1)>before,"Multi-editor actual custom graph draw");
+  require(get(5)==1,"Multi-editor graph uses real DSP telemetry");
+  return get(3);
+ };
+ OpenedEditor persistent=attach(first,35);
+ require(get(10)==baselineViews+1,"First response view alive");
+ std::uint64_t previousB=0;
+ for(unsigned iteration=0;iteration<12;++iteration){
+  OpenedEditor repeated=attach(second,65);
+  require(get(10)==baselineViews+2,
+          "Two simultaneously attached live filter graph views");
+  const double beat=iteration%2==0?.25:.75;
+  submitAudio(first,x3Modes[0],beat);
+  submitAudio(second,x3Modes[1],beat);
+  const auto curveA=paint(persistent);
+  const auto curveB=paint(repeated);
+  require(curveA!=curveB,
+          "Different VST3 processors must display independent X3 responses");
+  // A second focused redraw must retain the first instance's curve.
+  const auto againA=paint(persistent);
+  require(curveA==againA,
+          "Repainting another editor must not contaminate first editor");
+  if(iteration>0)
+   require(curveB!=previousB,"Real DSP LFO phase must animate second editor");
+  previousB=curveB;
+  detach(repeated);
+  require(get(10)==baselineViews+1,
+          "Closed second view releases its custom curve/timer");
+  require(paint(persistent)==curveA,
+          "Remaining editor stays correct after other editor is destroyed");
+ }
+ detach(persistent);
+ require(get(10)==baselineViews,
+         "All custom graph views released after reopen cycles");
+ for(std::size_t i=0;i<hosts.size();++i){
+  hosts[i]->stop();
+  require(processorPoints[i]->disconnect(controllerPoints[i])==kResultOk,
+          "Multi-editor processor disconnection");
+  require(controllerPoints[i]->disconnect(processorPoints[i])==kResultOk,
+          "Multi-editor controller disconnection");
+  processorPoints[i]->release();controllerPoints[i]->release();
+ }
+ nativeGuiPump();
+ require(get(10)==baselineViews,
+         "Late VSTGUI timer messages must not resurrect disposed views");
+ std::sort(redrawMilliseconds.begin(),redrawMilliseconds.end());
+ const auto pct=[&](double fraction){
+  const auto slot=static_cast<std::size_t>(std::ceil(fraction*redrawMilliseconds.size()))-1;
+  return redrawMilliseconds.at(std::min(slot,redrawMilliseconds.size()-1));
+ };
+ std::cout<<"MULTI-EDITOR VSTGUI PASS: 2 independent DSP instances, "
+          <<"12 second-editor reopen cycles, real X3 LFO telemetry and curve isolation; "
+          <<"native forced-paint p95_ms="<<pct(.95)
+          <<" p99_ms="<<pct(.99)
+          <<" max_ms="<<redrawMilliseconds.back()
+          <<" (UI-thread CI diagnostics, NOT ASIO or whole-window render cost)\n";
+}
+
 void exerciseAttachedEditor(Module& module) {
  // The previous smoke only queried the 900x1050 dimensions. That cannot
  // catch malformed child-view definitions: actually attach the VSTGUI
@@ -1954,6 +2125,7 @@ int main(int argc,char** argv){
  exerciseLfoAudioAndLegacyState(module);
  exerciseAttachedEditor(module);
  exerciseFilterGraphNative(module);
+ exerciseMultipleLiveGraphEditors(module);
  exerciseNativeGUIEdits(module);
  exerciseNativeGUIOptionMenus(module);
  exerciseNativeGUIMousePopups(module);
