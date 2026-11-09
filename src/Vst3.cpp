@@ -210,7 +210,10 @@ class Processor final : public AudioEffect {
  // Only the audio owner publishes; readers obtain a coherent atomic frame.
  static_assert(std::atomic<double>::is_always_lock_free);
  static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
- std::array<std::atomic<double>,11> published_{};
+ std::array<std::atomic<double>,DualLfo::kParameterCount> published_{};
+ // Project-state publication capacity MUST match host parameter/state count.
+ static_assert(std::tuple_size_v<decltype(published_)>==std::tuple_size_v<DualLfo::Params>);
+ static_assert(std::tuple_size_v<decltype(published_)>==defaults.size());
  std::atomic<std::uint64_t> publicationSeq_{0};
  void publishParams() noexcept {
   publicationSeq_.fetch_add(1,std::memory_order_acq_rel); // writer active
