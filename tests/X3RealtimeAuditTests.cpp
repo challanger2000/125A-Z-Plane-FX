@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <malloc.h>
 #include <new>
+#include <limits>
 #include <windows.h>
 
 // Instrument C++ new/new[] in this translation unit and all inline
@@ -120,6 +121,33 @@ int main() {
    "X3 RT FAIL: cases=%u/1320 filter=%u rate=%u exceptions=%d refused=%d nonfinite=%d C++ new in guarded DSP=%llu\n",
    cases,failedCase,failedRate,raised,returnedFalse,nonFinite,newCalls);
   return 1;
+ }
+ // Adversarial, FINITE extreme upstream PCM. The insert must never
+ // emit Inf/NaN or keep an IIR poisoned across a subsequent normal note.
+ for(unsigned rate:{44100u,48000u,96000u,192000u}) {
+  for(unsigned id=1;id<=55;++id) {
+   x3.reset();
+   if(!x3.set(id,.5f,.5f,rate))return 1;
+   inputL.fill(std::numeric_limits<float>::max());
+   inputR.fill(-std::numeric_limits<float>::max());
+   x3.process(inputL.data(),inputR.data(),resultL.data(),resultR.data(),frames,1.,false);
+   for(unsigned n=0;n<frames;++n) {
+    if(!std::isfinite(resultL[n])||!std::isfinite(resultR[n])) {
+     std::fprintf(stderr,"X3 RT FAIL: nonfinite hostile input result mode=%u rate=%u sample=%u L=%g R=%g\\n",
+                  id,rate,n,resultL[n],resultR[n]);
+     return 1;
+    }
+   }
+   inputL.fill(0.f);inputR.fill(0.f);
+   inputL[0]=.001f;inputR[7]=-.001f;
+   x3.process(inputL.data(),inputR.data(),resultL.data(),resultR.data(),frames,1.,false);
+   for(unsigned n=0;n<frames;++n) {
+    if(!std::isfinite(resultL[n])||!std::isfinite(resultR[n])) {
+     std::fprintf(stderr,"X3 RT FAIL: poisoned IIR state persisted mode=%u rate=%u sample=%u\\n",id,rate,n);
+     return 1;
+    }
+   }
+  }
  }
  std::printf("X3 RT PASS: 1320 real-bank mode/rate/Morph-Q cases, 32/64-bit streaming, queued fades; C++ heap new calls inside guarded adapter=0; no C++ exceptions or nonfinite samples. Direct malloc/HeapAlloc in linked code NOT COVERED.\n");
  return 0;
