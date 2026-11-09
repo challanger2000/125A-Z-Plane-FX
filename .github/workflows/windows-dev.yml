@@ -79,17 +79,17 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          git clone --depth 1 --branch fix/p98-generic-stereo-effect-p25 https://github.com/challanger2000/125A-Plugin-Test-Lab.git lab
+          git clone --depth 1 --branch main https://github.com/challanger2000/125A-Plugin-Test-Lab.git lab
           if ($LASTEXITCODE -ne 0) { throw 'Test Lab checkout failed' }
-          # Pin the reviewed source COMMIT, not the moving branch HEAD:
+          # Pin the tested merged source COMMIT, not the moving main HEAD:
           # subsequent fixture/documentation commits must not silently
           # change the binary tested here or block this already approved pin.
-          git -C lab fetch --depth 1 origin 9d7adcc809b3f8cc4c5a7210213c7e549cd55b9a
+          git -C lab fetch --depth 1 origin 58dc3ba730bb6297ddf7636254d62d16d5bd7f9e
           if ($LASTEXITCODE -ne 0) { throw 'Immutable Test Lab source SHA fetch failed' }
-          git -C lab checkout --detach 9d7adcc809b3f8cc4c5a7210213c7e549cd55b9a
+          git -C lab checkout --detach 58dc3ba730bb6297ddf7636254d62d16d5bd7f9e
           if ($LASTEXITCODE -ne 0) { throw 'Immutable Test Lab source checkout failed' }
           $labSha=(git -C lab rev-parse HEAD).Trim()
-          if ($labSha -ne '9d7adcc809b3f8cc4c5a7210213c7e549cd55b9a') {
+          if ($labSha -ne '58dc3ba730bb6297ddf7636254d62d16d5bd7f9e') {
             throw "Unreviewed Test Lab version $labSha"
           }
           cmake -S lab -B lab-build -A x64 -DFETCHCONTENT_SOURCE_DIR_VST3SDK="$env:GITHUB_WORKSPACE/sdk"
