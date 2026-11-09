@@ -48,21 +48,31 @@ public:
   // Recovered encoded register order: Transform / Frequency / Morph.
   const std::array<int,3> coordinates{norm(setting.transform),
                                        norm(setting.frequency),norm(setting.morph)};
-  const auto ratio=kNativeRate/rate;
+  // The recovered DSP rounds the native radius to binary32 *before*
+  // host-rate conversion. At high Q the ordering changes the pole radius
+  // enough to shift the reference spectrum.
+  const bool adaptRate=rate>1000.&&std::abs(rate-kNativeRate)>.01;
+  const auto ratio=adaptRate?kNativeRate/rate:1.;
   for(unsigned stage=0;stage<kStages;++stage){
    const unsigned offset=stage*16;
    const auto poleAngle=decode(record,offset,coordinates,true);
    const auto poleDecay=decode(record,offset+4,coordinates,false);
    const auto zeroAngle=stage<kStages-1?decode(record,offset+8,coordinates,true):0.;
    const auto zeroDecay=stage<kStages-1?decode(record,offset+12,coordinates,false):1.;
-   const auto radius=std::pow(std::clamp(1.-poleDecay,1.e-9,.999999),ratio);
+   const auto nativeRadius=static_cast<double>(static_cast<float>(1.-poleDecay));
+   const auto nativeZeroRadius=stage<kStages-1?
+     static_cast<double>(static_cast<float>(1.-zeroDecay)):0.;
+   const auto radius=std::clamp(std::pow(
+     std::clamp(nativeRadius,1.e-9,.999999),ratio),1.e-9,.999999);
    const auto zeroRadius=stage<kStages-1?
-     std::pow(std::clamp(1.-zeroDecay,0.,.999999),ratio):0.;
+     std::clamp(std::pow(std::clamp(nativeZeroRadius,0.,.999999),ratio),
+                0.,.999999):0.;
    const auto angle=poleAngle*ratio;
    auto& c=desc.stages[stage];
-   c.radius=std::clamp(radius,1.e-9,.999999);
-   c.a=c.radius*std::cos(angle);
-   c.z1=-2.*zeroRadius*std::cos(zeroAngle*ratio);
+   c.radius=radius;
+   c.a=c.radius*(adaptRate?std::cos(angle):firmwareCosine(poleAngle));
+   c.z1=-2.*zeroRadius*
+     (adaptRate?std::cos(zeroAngle*ratio):firmwareCosine(zeroAngle));
    c.z2=zeroRadius*zeroRadius;
    const bool normalize=(record.words[offset+8]&0x80000000u)!=0u;
    c.scale=normalize?
@@ -81,7 +91,7 @@ public:
  static double magnitude(Description const& d,double hz,double rate) noexcept {
   if(!d.valid||!std::isfinite(hz)||!std::isfinite(rate)||rate<=0.)return 0.;
   if(d.nullFilter)return 1.;
-  const auto w=2.*3.14159265358979323846*hz/rate;
+  const auto w=2.*3.14159265358979323846*std::clamp(hz,0.,rate*.5)/rate;
   const auto cs=std::cos(w),sn=std::sin(w);
   const auto cs2=std::cos(2*w),sn2=std::sin(2*w);
   auto value=d.gain;
@@ -179,6 +189,16 @@ private:
  bool wetReady_{false};
  std::uint32_t fadeSamples() const noexcept {
   return static_cast<std::uint32_t>(std::clamp(rate_*.005,1.,48000.));
+ }
+ // Native Morpheus firmware uses this piecewise cosine approximation;
+ // for host-rate adaptation the reference recalculates from std::cos.
+ static double firmwareCosine(double angle) noexcept {
+  const auto threshold=static_cast<double>(std::bit_cast<float>(0x3ec90fd8u));
+  if(angle<=threshold)return 1.-angle*angle/2.;
+  const auto pivot=static_cast<double>(std::bit_cast<float>(0x3fc90fdau));
+  const auto distance=pivot-angle;
+  const auto correction=static_cast<double>(std::bit_cast<float>(0x3e1fd312u));
+  return distance-distance*distance*distance*correction;
  }
  static double clean(double value) noexcept {
   return std::isfinite(value)?std::clamp(value,0.,1.):0.5;
