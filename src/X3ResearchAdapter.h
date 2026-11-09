@@ -93,6 +93,11 @@ public:
    reset();
    return true;
   }catch(const std::exception& e){
+   // Failed reload after a previously valid bank must invalidate the
+   // former filter's active IIR state, not just the bank pointers.
+   // Otherwise hasBanks()==false but process() still renders stale PCM.
+   // load() is control-thread only (before setActive), not realtime.
+   reset();
    factory_.reset();extended_.reset();reason=e.what();return false;
   }
  }
