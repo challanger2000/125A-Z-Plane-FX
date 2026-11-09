@@ -758,7 +758,7 @@ void exerciseFilterGraphNative(Module& module) {
  host.setup(kSample32,48000.,512);
  HWND parent=CreateWindowExW(0,L"STATIC",L"125A graphical DSP response QA",
          WS_OVERLAPPEDWINDOW|WS_CLIPCHILDREN,
-         35,35,950,930,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+         35,-330,950,930,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
  require(parent!=nullptr,"Create graph HWND");
  ShowWindow(parent,SW_SHOWNA);UpdateWindow(parent);
  auto* view=host.controller->createView(ViewType::kEditor);
@@ -782,6 +782,17 @@ void exerciseFilterGraphNative(Module& module) {
          "Activate measured Morpheus filter graph");
  repaint();
  const auto morpheusFingerprint=nativeFilterGraphFingerprint(canvas);
+ RECT canvasScreen{},canvasLocal{};
+ GetWindowRect(canvas,&canvasScreen);
+ GetClientRect(canvas,&canvasLocal);
+ std::cout<<"FILTER GRAPH QA DIAGNOSTICS: screen="<<GetSystemMetrics(SM_CXSCREEN)
+          <<"x"<<GetSystemMetrics(SM_CYSCREEN)
+          <<" canvas=("<<canvasScreen.left<<","<<canvasScreen.top<<") "
+          <<canvasLocal.right<<"x"<<canvasLocal.bottom
+          <<" defaultHash="<<defaultFingerprint
+          <<" morpheusHash="<<morpheusFingerprint
+          <<" controllerMorph="<<host.controller->getParamNormalized(8)
+          <<" controllerCube="<<host.controller->getParamNormalized(7)<<"\n";
  require(defaultFingerprint!=morpheusFingerprint,
          "Actual filter graph pixels must change between legacy and Morpheus");
  require(host.controller->setParamNormalized(8,.08)==kResultTrue,
