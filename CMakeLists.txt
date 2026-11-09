@@ -61,6 +61,18 @@ if(ZPLANE_BUILD_VST3)
   file(ARCHIVE_EXTRACT INPUT "${_research_zip}" DESTINATION "${CMAKE_BINARY_DIR}/third_party_research")
   target_include_directories(ZPlaneFX PRIVATE "${CMAKE_BINARY_DIR}/third_party_research/emulator-x3-filters")
   target_compile_definitions(ZPlaneFX PRIVATE ZPLANE_WITH_X3_RESEARCH=1)
+  # Embed the three byte-exact reconstructed X3 filter banks directly into
+  # the PE: no end-user Bank directory, installer step or environment needed.
+  # CI reconstructs/validates the pinned source-bank hashes before build.
+  set(_x3_assets "${CMAKE_BINARY_DIR}/third_party_research/emulator-x3-filters")
+  file(TO_CMAKE_PATH "${_x3_assets}/factory-bank.bin" _x3_factory)
+  file(TO_CMAKE_PATH "${_x3_assets}/standard-bank.bin" _x3_standard)
+  file(TO_CMAKE_PATH "${_x3_assets}/morph-support.bin" _x3_support)
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ZPlaneEmbeddedX3.rc"
+       "2001 RCDATA \"${_x3_factory}\"\n"
+       "2002 RCDATA \"${_x3_standard}\"\n"
+       "2003 RCDATA \"${_x3_support}\"\n")
+  target_sources(ZPlaneFX PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ZPlaneEmbeddedX3.rc")
   if(MSVC)
    target_compile_options(ZPlaneFX PRIVATE /fp:strict)
   endif()

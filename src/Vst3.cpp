@@ -2,9 +2,9 @@
 #include "AutomationTimeline.h"
 #ifdef ZPLANE_WITH_X3_RESEARCH
 #include "X3ResearchAdapter.h"
+#include "EmbeddedX3Resources.h"
 #include <filesystem>
 #include <string>
-#include <cstdlib>
 #endif
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "public.sdk/source/vst/vsteditcontroller.h"
@@ -157,17 +157,23 @@ public:
   addAudioInput(STR16("Stereo In"),SpeakerArr::kStereo);
   addAudioOutput(STR16("Stereo Out"),SpeakerArr::kStereo);
 #ifdef ZPLANE_WITH_X3_RESEARCH
-  // Bank assets never ship with this prototype. Load once on the host
-  // control thread, from the owner's own locally exported X3 banks.
-  const char* explicitPath=std::getenv("ZPLANE_X3_BANK_DIR");
-  const char* localData=std::getenv("LOCALAPPDATA");
-  std::filesystem::path bankDir;
-  if(explicitPath&&*explicitPath)bankDir=std::filesystem::u8path(explicitPath);
-  else if(localData&&*localData)bankDir=std::filesystem::u8path(localData)/"125A"/"ZPlaneFX"/"Banks";
-  if(!bankDir.empty()){
+  // Filter-bank data ship *inside this DLL*. Extract only transiently,
+  // on the VST3 control thread; the current X3 research parser requires
+  // file paths. All temporary files are removed after loading. A missing
+  // resource is a hard initialization error, never a silently dry X3 mode.
+  try {
+   HMODULE ownModule=nullptr;
+   if(!GetModuleHandleExW(
+      GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|
+      GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+      reinterpret_cast<LPCWSTR>(&Processor::createInstance),&ownModule))
+    return kResultFalse;
+   EmbeddedX3Resources embedded;
+   if(!embedded.extract(ownModule))return kResultFalse;
    std::string reason;
-   x3Ready_=x3_.load(bankDir,reason);
-  }
+   x3Ready_=x3_.load(embedded.directory(),reason);
+   if(!x3Ready_)return kResultFalse;
+  }catch(const std::exception&){return kResultFalse;}
 #endif
   return kResultOk;
  }
@@ -383,7 +389,7 @@ public:
   parameters.addParameter(STR16("Resonance"),nullptr,0,defaults[2],ParameterInfo::kCanAutomate,kQuality);
   parameters.addParameter(STR16("Wet"),nullptr,0,defaults[3],ParameterInfo::kCanAutomate,kWet);
   parameters.addParameter(STR16("Bypass"),nullptr,1,defaults[4],ParameterInfo::kCanAutomate|ParameterInfo::kIsBypass,kBypass);
-  auto* x3List=new StringListParameter(STR16("X3 Filter (banks required)"),kX3Filter);
+  auto* x3List=new StringListParameter(STR16("X3 Filter"),kX3Filter);
   x3List->appendString(STR16("Legacy Standard Filter"));
   x3List->appendString(STR16("Ace of Bass"));
   x3List->appendString(STR16("MegaSweepz"));
