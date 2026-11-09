@@ -67,6 +67,17 @@ jobs:
           if ($head[0] -ne 77 -or $head[1] -ne 90) { throw 'Not a Windows PE file' }
           $validator=Get-ChildItem -Path build -Recurse -File -Filter validator.exe | Select-Object -First 1
           if (-not $validator) { throw 'Official Steinberg validator unavailable' }
+          # Early process-level differential diagnosis: the native host creates the
+          # controller and editor before validator, catching lifecycle corruption.
+          $native='build/Release/zplane_native_host_tests.exe'
+          if (Test-Path $native) {
+            Write-Host 'DIAG: native embedded host before Steinberg validator'
+            & $native $binary '--embedded-smoke'
+            Write-Host "DIAG: native host exit=$LASTEXITCODE"
+            if (Test-Path 'ZPLANE-CONTROLLER-DIAG.log') {
+              Get-Content 'ZPLANE-CONTROLLER-DIAG.log' | Select-Object -Last 100
+            }
+          }
           & $validator.FullName (Resolve-Path 'artifact/125A Z-Plane FX.vst3').Path
           if ($LASTEXITCODE -ne 0) {
             if (Test-Path 'ZPLANE-CONTROLLER-DIAG.log') { Get-Content 'ZPLANE-CONTROLLER-DIAG.log' }
