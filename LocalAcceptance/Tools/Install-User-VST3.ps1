@@ -1,6 +1,16 @@
 #Requires -Version 5.1
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+function HashSha256([string]$path) {
+  $stream=[IO.File]::OpenRead($path)
+  $hash=[Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($hash.ComputeHash($stream))).Replace('-','')
+  } finally {
+    $hash.Dispose()
+    $stream.Dispose()
+  }
+}
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $source=Join-Path $root 'Plugin\125A Z-Plane FX.vst3'
 $binary=Join-Path $source 'Contents\x86_64-win\125A Z-Plane FX.vst3'
@@ -23,8 +33,8 @@ if(Test-Path -LiteralPath $dest){
 Copy-Item -LiteralPath $source -Destination $destRoot -Recurse
 $installed=Join-Path $dest 'Contents\x86_64-win\125A Z-Plane FX.vst3'
 if(-not (Test-Path -LiteralPath $installed -PathType Leaf)){throw 'Kopiertes VST3 fehlt'}
-$hash=(Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash
-$original=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
+$hash=(HashSha256 $installed)
+$original=(HashSha256 $binary)
 if($hash -ine $original){throw 'Installationshash stimmt nicht'}
 $bankRoot=Join-Path $root 'Banks'
 $bankDest=Join-Path $env:LOCALAPPDATA '125A\ZPlaneFX\Banks'
