@@ -1,6 +1,7 @@
 #include "FilterCore.h"
 #include "AutomationTimeline.h"
 #include "MorpheusFilter.h"
+#include "DualLfo.h"
 #ifdef ZPLANE_WITH_X3_RESEARCH
 #include "X3ResearchAdapter.h"
 #include "EmbeddedX3Resources.h"
@@ -31,10 +32,13 @@ static const FUID kProcessor(0x3E858CA1,0xF71C4BC2,0xAA13012B,0xD7EE4561);
 static const FUID kController(0x8577FE18,0x947B4E20,0xA4CB7205,0xC3F2A019);
 constexpr uint32 kMagic=0x3150585Au;
 enum : ParamID { kMode=0,kCutoff=1,kQuality=2,kWet=3,kBypass=4,kX3Filter=5,
- kMorpheusOn=6,kMorpheusCube=7,kMorpheusMorph=8,kMorpheusFreq=9,kMorpheusTransform=10 };
-constexpr std::array<double,11> defaults={0.,0.5,0.5,1.,0.,0.,0.,0.,0.5,0.5,0.5};
+ kMorpheusOn=6,kMorpheusCube=7,kMorpheusMorph=8,kMorpheusFreq=9,kMorpheusTransform=10,
+ kLfo1On=11,kLfo1Rate=12,kLfo1Depth=13,kLfo1Shape=14,kLfo1Target=15,kLfo1Sync=16,
+ kLfo2On=17,kLfo2Rate=18,kLfo2Depth=19,kLfo2Shape=20,kLfo2Target=21,kLfo2Sync=22 };
+constexpr DualLfo::Params defaults={0.,0.5,0.5,1.,0.,0.,0.,0.,0.5,0.5,0.5,
+  0.,.5,0.,0.,.25,1., 0.,.5,0.,0.,.25,1.};
 static double clampParam(double x) noexcept {return std::isfinite(x)?std::clamp(x,0.0,1.0):0.;}
-static Settings makeSettings(const std::array<double,11>& p) noexcept {
+static Settings makeSettings(const DualLfo::Params& p) noexcept {
  Settings s;
  s.mode=static_cast<Mode>(std::min(3,static_cast<int>(std::floor(p[0]*4.))));
  s.frequency=20.*std::pow(1000.,p[1]);
@@ -43,8 +47,13 @@ static Settings makeSettings(const std::array<double,11>& p) noexcept {
  return s;
 }
 class Processor final : public AudioEffect {
- std::array<double,11> params_{defaults}; // processor/audio owner: host process and control methods follow SDK lifecycle
+ DualLfo::Params params_{defaults}; // processor/audio owner: host process and control methods follow SDK lifecycle
  StereoFilter dsp_;
+ double effectiveCutoff_{.5},effectiveQ_{.5};
+ Settings legacySettings() const noexcept {
+  auto copy=params_;copy[kCutoff]=effectiveCutoff_;copy[kQuality]=effectiveQ_;
+  return makeSettings(copy);
+ }
 #ifdef ZPLANE_WITH_X3_RESEARCH
  X3ResearchAdapter x3_{};
  bool x3Ready_{false};
@@ -57,7 +66,7 @@ class Processor final : public AudioEffect {
  void renderFamilies(const Sample* il,const Sample* ir,Sample* ol,Sample* orr,
                      std::uint32_t frames,bool x3Available) noexcept {
   if(familyLeft_==0&&familyBlend_<=0.){
-   dsp_.configure(rate_,makeSettings(params_));
+   dsp_.configure(rate_,legacySettings());
    dsp_.process(il,ir,ol,orr,frames);
    return;
   }
@@ -69,7 +78,7 @@ class Processor final : public AudioEffect {
    }
    return;
   }
-  dsp_.configure(rate_,makeSettings(params_));
+  dsp_.configure(rate_,legacySettings());
   // Bounded, fixed stack scratch. 128 frames, two stereo DSP engines;
   // no callback heap allocations or per-host-block scratch allocation.
   constexpr std::uint32_t kScratch=128;
@@ -124,6 +133,8 @@ class Processor final : public AudioEffect {
  double cubeBlend_{0.},cubeTarget_{0.},cubeStep_{0.};
  std::uint32_t cubeLeft_{0};
  bool cubeReady_{false};
+ std::uint64_t freeSamples_{0};
+ double fallbackBeats_{0.};
  template<typename Sample>
  void renderOriginal(const Sample* il,const Sample* ir,Sample* ol,Sample* orr,
                      std::uint32_t frames,bool useX3) noexcept {
@@ -131,7 +142,7 @@ class Processor final : public AudioEffect {
   renderFamilies(il,ir,ol,orr,frames,useX3);
 #else
   (void)useX3;
-  dsp_.configure(rate_,makeSettings(params_));
+  dsp_.configure(rate_,legacySettings());
   dsp_.process(il,ir,ol,orr,frames);
 #endif
  }
@@ -186,7 +197,7 @@ class Processor final : public AudioEffect {
    published_[i].store(params_[i],std::memory_order_relaxed);
   publicationSeq_.fetch_add(1,std::memory_order_release); // coherent
  }
- bool readPublished(std::array<double,11>& values) const noexcept {
+ bool readPublished(DualLfo::Params& values) const noexcept {
   // Control thread only; a bounded retry returns failure rather than
   // writing a torn project state in pathological contention.
   for(unsigned retry=0;retry<512;++retry){
@@ -244,8 +255,10 @@ public:
   const auto rc=AudioEffect::setupProcessing(setup);
   if(rc==kResultOk){
    rate_=setup.sampleRate;
+   effectiveCutoff_=params_[kCutoff];effectiveQ_=params_[kQuality];
+   freeSamples_=0;fallbackBeats_=0.;
    dsp_.reset();
-   dsp_.configure(rate_,makeSettings(params_));
+   dsp_.configure(rate_,legacySettings());
    morpheus_.reset(rate_);
    cubeBlend_=cubeTarget_=cubeStep_=0.;cubeLeft_=0;cubeReady_=false;
 #ifdef ZPLANE_WITH_X3_RESEARCH
@@ -259,6 +272,8 @@ public:
  tresult PLUGIN_API setProcessing(TBool) override {return kResultOk;}
  tresult PLUGIN_API setActive(TBool active) override {
   if(!active){
+   freeSamples_=0;fallbackBeats_=0.;
+   effectiveCutoff_=params_[kCutoff];effectiveQ_=params_[kQuality];
    dsp_.reset();
    morpheus_.reset(rate_);
    cubeBlend_=cubeTarget_=cubeStep_=0.;cubeLeft_=0;cubeReady_=false;
@@ -276,6 +291,11 @@ public:
   // Conservative 30-second cap at all supported sample rates.
   return static_cast<uint32>(std::clamp(rate_*30.,1.,static_cast<double>(UINT32_MAX-1)));
  }
+ uint32 PLUGIN_API getProcessContextRequirements() override {
+  return IProcessContextRequirements::kNeedTempo|
+         IProcessContextRequirements::kNeedProjectTimeMusic|
+         IProcessContextRequirements::kNeedTransportState;
+ }
  tresult PLUGIN_API process(ProcessData& data) override {
   if(data.numSamples<0||data.numInputs<0||data.numOutputs<0)return kInvalidArgument;
   // Host automation is time-stamped. Never collapse a queue to its last
@@ -286,7 +306,7 @@ public:
     const int32 count=data.inputParameterChanges->getParameterCount();
     for(int32 i=0;i<count;++i) {
       auto* queue=data.inputParameterChanges->getParameterData(i);if(!queue)continue;
-      const auto id=queue->getParameterId();if(id>kMorpheusTransform)continue;
+      const auto id=queue->getParameterId();if(id>kLfo2Sync)continue;
       const int32 points=queue->getPointCount();
       for(int32 p=0;p<points;++p) {
         int32 offset=0;ParamValue value=0.;
@@ -312,6 +332,15 @@ public:
   }else{
     if(!in.channelBuffers64||!out.channelBuffers64||!in.channelBuffers64[0]||!in.channelBuffers64[1]||!out.channelBuffers64[0]||!out.channelBuffers64[1])return kInvalidArgument;
   }
+  const auto* context=data.processContext;
+  const bool tempoValid=context&&(context->state&ProcessContext::kTempoValid)&&
+     std::isfinite(context->tempo)&&context->tempo>=10.&&context->tempo<=400.;
+  const auto bpm=tempoValid?context->tempo:120.;
+  const bool ppqValid=context&&(context->state&ProcessContext::kProjectTimeMusicValid)&&
+     std::isfinite(context->projectTimeMusic);
+  const DualLfo::Clock clock{ppqValid?context->projectTimeMusic:fallbackBeats_,bpm};
+  const auto sampleBase=freeSamples_;
+  const auto quantum=DualLfo::quantum(rate_);
   std::uint32_t cursor=0;
   std::size_t event=0;
   while(cursor<n){
@@ -321,6 +350,16 @@ public:
     const auto next=event<timeline.size()?std::min(n,timeline[event].offset):n;
     if(next<=cursor)return kResultFalse;
     auto length=next-cursor;
+    const bool modActive=DualLfo::anyActive(params_);
+    if(modActive){
+     const auto remaining=quantum-(sampleBase+cursor)%quantum;
+     length=std::min(length,static_cast<std::uint32_t>(remaining));
+    }
+    const auto mod=modActive?
+      DualLfo::evaluate(params_,sampleBase+cursor,rate_,clock,cursor):
+      DualLfo::Result{params_[kMorpheusMorph],params_[kMorpheusFreq],
+                      params_[kMorpheusTransform],params_[kCutoff],params_[kQuality]};
+    effectiveCutoff_=mod.x3Morph;effectiveQ_=mod.x3Q;
     const bool wantCube=params_[kMorpheusOn]>=0.5;
     if(!cubeReady_){
      cubeBlend_=cubeTarget_=wantCube?1.:0.;cubeReady_=true;
@@ -335,8 +374,8 @@ public:
      morpheus_.completeDeferred();
      const auto cubeIndex=static_cast<unsigned>(
        std::clamp(std::floor(params_[kMorpheusCube]*288.+0.5),0.,288.));
-     morpheus_.set({cubeIndex,params_[kMorpheusMorph],params_[kMorpheusFreq],
-                    params_[kMorpheusTransform]},params_[kWet],params_[kBypass]>=0.5);
+     morpheus_.set({cubeIndex,mod.morph,mod.frequency,
+                    mod.transform},params_[kWet],params_[kBypass]>=0.5);
      length=std::min(length,morpheus_.samplesToQueuedTransition());
     }
     bool renderX3=false;
@@ -357,8 +396,8 @@ public:
     if(x3Audible&&x3Ready_){
      x3_.completeDeferred();
      if(useX3)
-      renderX3=x3_.set(requested,static_cast<float>(params_[kCutoff]),
-                       static_cast<float>(params_[kQuality]),
+      renderX3=x3_.set(requested,static_cast<float>(mod.x3Morph),
+                       static_cast<float>(mod.x3Q),
                        static_cast<unsigned>(std::llround(rate_)));
      else renderX3=x3_.hasBanks();
     }
@@ -375,6 +414,8 @@ public:
     if(cubeAudible)morpheus_.completeDeferred();
     cursor+=length;
   }
+  freeSamples_+=n;
+  fallbackBeats_+=static_cast<double>(n)*bpm/(60.*rate_);
   // An event at offset n defines the state for the following callback.
   while(event<timeline.size()){
     params_[timeline[event].parameter]=timeline[event].value;++event;
@@ -385,23 +426,26 @@ public:
  tresult PLUGIN_API getState(IBStream* stream) override {
   if(!stream)return kInvalidArgument;
   IBStreamer st(stream,kLittleEndian);
-  if(!st.writeInt32u(kMagic)||!st.writeInt32u(3))return kResultFalse;
-  std::array<double,11> coherent{};
+  if(!st.writeInt32u(kMagic)||!st.writeInt32u(4))return kResultFalse;
+  DualLfo::Params coherent{};
   if(!readPublished(coherent))return kResultFalse;
   for(double p:coherent)if(!st.writeDouble(p))return kResultFalse;
   return kResultOk;
  }
  tresult PLUGIN_API setState(IBStream* stream) override {
   if(!stream)return kInvalidArgument;IBStreamer st(stream,kLittleEndian);
-  uint32 magic=0,version=0;if(!st.readInt32u(magic)||!st.readInt32u(version)||magic!=kMagic||(version!=1&&version!=2&&version!=3))return kResultFalse;
+  uint32 magic=0,version=0;if(!st.readInt32u(magic)||!st.readInt32u(version)||magic!=kMagic||(version!=1&&version!=2&&version!=3&&version!=4))return kResultFalse;
   auto candidate=params_;
-  for(std::size_t i=0;i<(version==1?5u:version==2?6u:11u);++i){auto& p=candidate[i];if(!st.readDouble(p)||!std::isfinite(p)||p<0.||p>1.)return kResultFalse;}
+  for(std::size_t i=0;i<(version==1?5u:version==2?6u:version==3?11u:23u);++i){auto& p=candidate[i];if(!st.readDouble(p)||!std::isfinite(p)||p<0.||p>1.)return kResultFalse;}
   if(version==1)candidate[kX3Filter]=0.;
-  if(version<3)for(std::size_t i=6;i<candidate.size();++i)candidate[i]=defaults[i];
+  if(version<3)for(std::size_t i=6;i<11;++i)candidate[i]=defaults[i];
+  if(version<4)for(std::size_t i=11;i<candidate.size();++i)candidate[i]=defaults[i];
   // Per VST3 lifecycle, setState is a host control-thread operation
   // with audio processing suspended. getState alone may be concurrent.
   params_=candidate;publishParams();
-  dsp_.configure(rate_,makeSettings(params_));
+  effectiveCutoff_=params_[kCutoff];effectiveQ_=params_[kQuality];
+  freeSamples_=0;fallbackBeats_=0.;
+  dsp_.configure(rate_,legacySettings());
   morpheus_.reset(rate_);
   cubeBlend_=cubeTarget_=cubeStep_=0.;cubeLeft_=0;cubeReady_=false;
 #ifdef ZPLANE_WITH_X3_RESEARCH
@@ -813,13 +857,30 @@ public:
   parameters.addParameter(STR16("Morpheus Morph"),nullptr,0,defaults[8],ParameterInfo::kCanAutomate,kMorpheusMorph);
   parameters.addParameter(STR16("Morpheus Frequency"),nullptr,0,defaults[9],ParameterInfo::kCanAutomate,kMorpheusFreq);
   parameters.addParameter(STR16("Morpheus Transform"),nullptr,0,defaults[10],ParameterInfo::kCanAutomate,kMorpheusTransform);
+  for(unsigned n=0;n<2;++n){
+   const ParamID b=kLfo1On+n*6;
+   const bool first=n==0;
+   parameters.addParameter(first?STR16("LFO 1 On"):STR16("LFO 2 On"),nullptr,1,defaults[b],ParameterInfo::kCanAutomate,b);
+   parameters.addParameter(first?STR16("LFO 1 Rate / Division"):STR16("LFO 2 Rate / Division"),nullptr,0,defaults[b+1],ParameterInfo::kCanAutomate,b+1);
+   parameters.addParameter(first?STR16("LFO 1 Depth"):STR16("LFO 2 Depth"),nullptr,0,defaults[b+2],ParameterInfo::kCanAutomate,b+2);
+   auto* shape=new StringListParameter(first?STR16("LFO 1 Shape"):STR16("LFO 2 Shape"),b+3);
+   shape->appendString(STR16("Sine"));shape->appendString(STR16("Triangle"));shape->appendString(STR16("Saw"));
+   shape->appendString(STR16("Square"));shape->appendString(STR16("Sample Hold"));
+   parameters.addParameter(shape);
+   auto* target=new StringListParameter(first?STR16("LFO 1 Target"):STR16("LFO 2 Target"),b+4);
+   target->appendString(STR16("Off"));target->appendString(STR16("Morph / X3 Morph"));
+   target->appendString(STR16("Morpheus Frequency"));target->appendString(STR16("Morpheus Transform"));
+   target->appendString(STR16("Q / X3 Resonance"));
+   parameters.addParameter(target);
+   parameters.addParameter(first?STR16("LFO 1 Sync"):STR16("LFO 2 Sync"),nullptr,1,defaults[b+5],ParameterInfo::kCanAutomate,b+5);
+  }
   return kResultOk;
  }
  tresult PLUGIN_API setComponentState(IBStream* stream) override {
   if(!stream)return kInvalidArgument;IBStreamer st(stream,kLittleEndian);
-  uint32 magic=0,version=0;if(!st.readInt32u(magic)||!st.readInt32u(version)||magic!=kMagic||(version!=1&&version!=2&&version!=3))return kResultFalse;
+  uint32 magic=0,version=0;if(!st.readInt32u(magic)||!st.readInt32u(version)||magic!=kMagic||(version!=1&&version!=2&&version!=3&&version!=4))return kResultFalse;
   auto values=defaults;
-  for(std::size_t i=0;i<(version==1?5u:version==2?6u:11u);++i){auto& p=values[i];if(!st.readDouble(p)||!std::isfinite(p)||p<0.||p>1.)return kResultFalse;}
+  for(std::size_t i=0;i<(version==1?5u:version==2?6u:version==3?11u:23u);++i){auto& p=values[i];if(!st.readDouble(p)||!std::isfinite(p)||p<0.||p>1.)return kResultFalse;}
   for(ParamID id=0;id<values.size();++id)setParamNormalized(id,values[id]);
   return kResultOk;
  }

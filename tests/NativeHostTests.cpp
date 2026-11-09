@@ -159,13 +159,13 @@ void render(Instance& inst,int32 format,ParameterChanges* changes,bool verify){
 }
 void exerciseConcurrentStateSnapshots(Module& module) {
  // Actual staged VST3 with a live audio thread repeatedly changing ALL
- // eleven parameters while an independent control thread saves project state.
+ // 23 parameters while an independent control thread saves project state.
  // Each save must be one COMPLETE vector (defaults/A/B), never a mixture.
  Instance host(module);
  host.setup(kSample32,48000.,64);
- constexpr std::array<double,11> a{{0.,.15,.25,.80,0.,0.,0.,0.,.5,.5,.5}};
- constexpr std::array<double,11> b{{1.,.85,.75,.20,1.,1./55.,1.,43./288.,.8,.3,.6}};
- constexpr std::array<double,11> defaultsLocal{{0.,.5,.5,1.,0.,0.,0.,0.,.5,.5,.5}};
+ constexpr std::array<double,23> a{{0.,.15,.25,.80,0.,0.,0.,0.,.5,.5,.5,0.,.5,0.,0.,.25,1.,0.,.5,0.,0.,.25,1.}};
+ constexpr std::array<double,23> b{{1.,.85,.75,.20,1.,1./55.,1.,43./288.,.8,.3,.6,0.,.5,0.,0.,.25,1.,0.,.5,0.,0.,.25,1.}};
+ constexpr std::array<double,23> defaultsLocal{{0.,.5,.5,1.,0.,0.,0.,0.,.5,.5,.5,0.,.5,0.,0.,.25,1.,0.,.5,0.,0.,.25,1.}};
  std::array<float,64> inL{},inR{},outL{},outR{};
  for(int i=0;i<64;++i){inL[static_cast<std::size_t>(i)]=i%7==0?.08f:.03f;}
  Sample32* input[]{inL.data(),inR.data()},*output[]{outL.data(),outR.data()};
@@ -181,7 +181,7 @@ void exerciseConcurrentStateSnapshots(Module& module) {
   for(unsigned block=0;block<5000;++block){
    ParameterChanges edits;
    const auto& values=(block%2)?a:b;
-   for(ParamID id=0;id<11;++id){
+   for(ParamID id=0;id<23;++id){
     int32 slot=0,point=0;
     auto* q=edits.addParameterData(id,slot);
     if(!q||q->addPoint(0,values[id],point)!=kResultOk) {
@@ -203,9 +203,9 @@ void exerciseConcurrentStateSnapshots(Module& module) {
   stream.rewind();
   Steinberg::IBStreamer reader(&stream,kLittleEndian);
   Steinberg::uint32 magic=0,version=0;
-  std::array<double,11> sample{};
+  std::array<double,23> sample{};
   bool valid=reader.readInt32u(magic)&&reader.readInt32u(version)&&
-    magic==0x3150585Au&&version==3;
+    magic==0x3150585Au&&version==4;
   for(auto& value:sample)
    if(valid)valid=reader.readDouble(value);
   if(!valid||!(sample==a||sample==b||sample==defaultsLocal)){
@@ -222,7 +222,7 @@ void exerciseConcurrentStateSnapshots(Module& module) {
          "Concurrent host save must never contain mixed parameter generations");
  host.stop();
  std::cout<<"NATIVE HOST PASS: concurrent 5000 real callback state edits and "
-          <<reads<<" coherent eleven-parameter project saves\\n";
+          <<reads<<" coherent 23-parameter project saves\\n";
 }
 void exerciseDenseAutomation(Module& module) {
  // Adversarial 4096 host events (the documented capacity). Use distinct offsets:
@@ -416,7 +416,7 @@ void exerciseNativeGUIEdits(Module& module) {
  require(view!=nullptr,"Create real GUI control editor");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "GUI control editor attach");
- ViewRect rect{0,0,900,835};
+ ViewRect rect{0,0,900,1050};
  require(view->onSize(&rect)==kResultOk,"GUI control host onSize");
  nativeGuiPump();
  struct SliderPoint {ParamID id;int x;int y;int width;};
@@ -505,9 +505,9 @@ void exerciseNativeGUIOptionMenus(Module& module) {
  require(view!=nullptr,"Option-menu native editor creation");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "Option-menu native editor attachment");
- ViewRect rect{0,0,900,835};
+ ViewRect rect{0,0,900,1050};
  require(view->onSize(&rect)==kResultOk,
-         "Option-menu native editor 900x835 onSize");
+         "Option-menu native editor 900x1050 onSize");
  nativeGuiPump();
  HWND canvas=GetWindow(parent,GW_CHILD);
  require(canvas!=nullptr,"VSTGUI child HWND for option-menu key events");
@@ -665,7 +665,7 @@ void exerciseNativeGUIMousePopups(Module& module) {
  require(view!=nullptr,"Native popup editor creation");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "Native popup editor attach");
- ViewRect rect{0,0,900,835};
+ ViewRect rect{0,0,900,1050};
  require(view->onSize(&rect)==kResultOk,
          "Native popup editor host sizing");
  nativeGuiPump();
@@ -735,7 +735,7 @@ void exerciseFilterGraphNative(Module& module) {
  auto* view=host.controller->createView(ViewType::kEditor);
  require(view!=nullptr,"Create graph VST3 editor");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,"Graph editor attach");
- ViewRect size{0,0,900,835};
+ ViewRect size{0,0,900,1050};
  require(view->onSize(&size)==kResultOk,"Graph editor exact host size");
  HWND canvas=GetWindow(parent,GW_CHILD);
  require(canvas!=nullptr,"Graph real child canvas");
@@ -789,7 +789,7 @@ void exerciseFilterGraphNative(Module& module) {
           <<"legacy/Morpheus/morph/bypass/X3 curve data changes in draw() callback\n";
 }
 void exerciseAttachedEditor(Module& module) {
- // The previous smoke only queried the 900x835 dimensions. That cannot
+ // The previous smoke only queried the 900x1050 dimensions. That cannot
  // catch malformed child-view definitions: actually attach the VSTGUI
  // editor to an HWND and require it to create a native child window.
  Instance instance(module);
@@ -807,13 +807,13 @@ void exerciseAttachedEditor(Module& module) {
  // Simulate the VST3 host's documented onSize callback after it has
  // allocated the editor HWND. The prior native probe never performed this
  // host step, so the editor reported its initial 0x0 platform frame.
- ViewRect requested{0,0,900,835};
+ ViewRect requested{0,0,900,1050};
  require(view->onSize(&requested)==kResultOk,"Host initial editor onSize callback");
  ViewRect rect{};
  const auto sizeResult=view->getSize(&rect);
  std::cout<<"VSTGUI attached reported size: "<<rect.getWidth()<<" x "<<rect.getHeight()
           <<" result "<<sizeResult<<"\\n";
- require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==835,
+ require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==1050,
          "VSTGUI attached canvas must match host initial onSize");
  require(GetWindow(parent,GW_CHILD)!=nullptr,
          "Attached VSTGUI must create an actual native child window");
@@ -843,7 +843,7 @@ void exercise(Module& module,int32 format){
  else render<double>(i,format,&changes,true);
  Steinberg::ResizableMemoryIBStream saved;
  require(i.component->getState(&saved)==kResultOk,"Component state save");
- require(saved.getCursor()==96,"Expected 8-byte header plus eleven v3 doubles");
+ require(saved.getCursor()==192,"Expected 8-byte header plus 23 v4 doubles");
  saved.rewind();
  require(i.controller->setComponentState(&saved)==kResultOk,"Controller project recall");
  require(i.controller->getParamNormalized(4)==1.,"Controller bypass matches processor");

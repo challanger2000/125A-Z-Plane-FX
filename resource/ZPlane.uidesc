@@ -24,16 +24,28 @@
       "MorpheusCube": "7",
       "MorpheusMorph": "8",
       "MorpheusFrequency": "9",
-      "MorpheusTransform": "10"
+      "MorpheusTransform": "10",
+      "LFO1On": "11",
+      "LFO1Rate": "12",
+      "LFO1Depth": "13",
+      "LFO1Shape": "14",
+      "LFO1Target": "15",
+      "LFO1Sync": "16",
+      "LFO2On": "17",
+      "LFO2Rate": "18",
+      "LFO2Depth": "19",
+      "LFO2Shape": "20",
+      "LFO2Target": "21",
+      "LFO2Sync": "22"
     },
     "templates": {
       "ZPlaneMain": {
         "attributes": {
           "class": "CViewContainer",
           "origin": "0, 0",
-          "size": "900, 835",
-          "minSize": "900, 835",
-          "maxSize": "900, 835",
+          "size": "900, 1050",
+          "minSize": "900, 1050",
+          "maxSize": "900, 1050",
           "background-color": "PanelDark",
           "transparent": "false",
           "mouse-enabled": "true"
@@ -429,6 +441,354 @@
               "size": "830, 178",
               "mouse-enabled": "false",
               "transparent": "false"
+            }
+          },
+          "LFO1Header": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 838",
+              "size": "392, 24",
+              "title": "LFO 1  -  MODULATION",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO1On": {
+            "attributes": {
+              "class": "CCheckBox",
+              "origin": "34, 867",
+              "size": "145, 28",
+              "title": "ON",
+              "control-tag": "LFO1On",
+              "font": "~ NormalFont",
+              "font-color": "Text",
+              "checkmark-color": "Accent",
+              "boxfill-color": "Control",
+              "boxframe-color": "Border",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO1Sync": {
+            "attributes": {
+              "class": "CCheckBox",
+              "origin": "244, 867",
+              "size": "145, 28",
+              "title": "DAW SYNC",
+              "control-tag": "LFO1Sync",
+              "font": "~ NormalFont",
+              "font-color": "Text",
+              "checkmark-color": "Accent",
+              "boxfill-color": "Control",
+              "boxframe-color": "Border",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO1ShapeLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 894",
+              "size": "190, 24",
+              "title": "SHAPE",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO1TargetLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "239, 894",
+              "size": "190, 24",
+              "title": "TARGET",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO1Shape": {
+            "attributes": {
+              "class": "COptionMenu",
+              "origin": "34, 921",
+              "size": "188, 29",
+              "control-tag": "LFO1Shape",
+              "back-color": "Control",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "frame-color": "Border",
+              "frame-width": "1",
+              "text-alignment": "left",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO1Target": {
+            "attributes": {
+              "class": "COptionMenu",
+              "origin": "239, 921",
+              "size": "188, 29",
+              "control-tag": "LFO1Target",
+              "back-color": "Control",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "frame-color": "Border",
+              "frame-width": "1",
+              "text-alignment": "left",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO1RateLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "34, 959",
+              "size": "185, 24",
+              "title": "RATE / DIVISION",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO1DepthLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "239, 959",
+              "size": "185, 24",
+              "title": "DEPTH",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO1Rate": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "34, 986",
+              "size": "188, 24",
+              "control-tag": "LFO1Rate",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO1Depth": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "239, 986",
+              "size": "188, 24",
+              "control-tag": "LFO1Depth",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO2Header": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "473, 838",
+              "size": "392, 24",
+              "title": "LFO 2  -  MODULATION",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO2On": {
+            "attributes": {
+              "class": "CCheckBox",
+              "origin": "473, 867",
+              "size": "145, 28",
+              "title": "ON",
+              "control-tag": "LFO2On",
+              "font": "~ NormalFont",
+              "font-color": "Text",
+              "checkmark-color": "Accent",
+              "boxfill-color": "Control",
+              "boxframe-color": "Border",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO2Sync": {
+            "attributes": {
+              "class": "CCheckBox",
+              "origin": "683, 867",
+              "size": "145, 28",
+              "title": "DAW SYNC",
+              "control-tag": "LFO2Sync",
+              "font": "~ NormalFont",
+              "font-color": "Text",
+              "checkmark-color": "Accent",
+              "boxfill-color": "Control",
+              "boxframe-color": "Border",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO2ShapeLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "473, 894",
+              "size": "190, 24",
+              "title": "SHAPE",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO2TargetLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "678, 894",
+              "size": "190, 24",
+              "title": "TARGET",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO2Shape": {
+            "attributes": {
+              "class": "COptionMenu",
+              "origin": "473, 921",
+              "size": "188, 29",
+              "control-tag": "LFO2Shape",
+              "back-color": "Control",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "frame-color": "Border",
+              "frame-width": "1",
+              "text-alignment": "left",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO2Target": {
+            "attributes": {
+              "class": "COptionMenu",
+              "origin": "678, 921",
+              "size": "188, 29",
+              "control-tag": "LFO2Target",
+              "back-color": "Control",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "frame-color": "Border",
+              "frame-width": "1",
+              "text-alignment": "left",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO2RateLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "473, 959",
+              "size": "185, 24",
+              "title": "RATE / DIVISION",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO2DepthLabel": {
+            "attributes": {
+              "class": "CTextLabel",
+              "origin": "678, 959",
+              "size": "185, 24",
+              "title": "DEPTH",
+              "font-color": "Text",
+              "font": "~ NormalFont",
+              "text-alignment": "left",
+              "style-no-frame": "true",
+              "transparent": "true",
+              "mouse-enabled": "false"
+            }
+          },
+          "LFO2Rate": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "473, 986",
+              "size": "188, 24",
+              "control-tag": "LFO2Rate",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
+            }
+          },
+          "LFO2Depth": {
+            "attributes": {
+              "class": "CSlider",
+              "origin": "678, 986",
+              "size": "188, 24",
+              "control-tag": "LFO2Depth",
+              "orientation": "horizontal",
+              "mode": "free click",
+              "draw-back": "true",
+              "draw-frame": "true",
+              "draw-value": "true",
+              "draw-back-color": "Control",
+              "draw-frame-color": "Border",
+              "draw-value-color": "Accent",
+              "frame-width": "1",
+              "wheel-inc-value": "0.025",
+              "transparent": "false",
+              "wants-focus": "true"
             }
           }
         }

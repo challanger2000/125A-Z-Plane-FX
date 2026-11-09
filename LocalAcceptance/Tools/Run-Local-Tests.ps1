@@ -141,6 +141,7 @@ if(Test-Path -LiteralPath $dll){
 }
 [void](RunExe 'Core DSP Unit' (Join-Path $native 'zplane_core_tests.exe') @() 'core.log' $true)
 [void](RunExe 'Automation Unit' (Join-Path $native 'zplane_automation_tests.exe') @() 'automation.log' $true)
+[void](RunExe 'Dual LFO Unit' (Join-Path $native 'zplane_dual_lfo_tests.exe') @() 'dual-lfo.log' $true)
 [void](RunExe 'Morpheus 289 Cubes Unit' (Join-Path $native 'zplane_morpheus_tests.exe') @() 'morpheus-cubes.log' $true)
 [void](RunExe 'Morpheus Independent 288 Filter Oracle' (Join-Path $native 'zplane_morpheus_oracle_tests.exe') @() 'morpheus-reference-288.log' $true)
 [void](RunExe 'Filter Display Analytic Accuracy' (Join-Path $native 'zplane_filter_display_tests.exe') @() 'filter-display-response.log' $true)

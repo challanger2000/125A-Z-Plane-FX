@@ -15,7 +15,7 @@ struct AutomationEvent {
 class AutomationTimeline {
 public:
  static constexpr std::size_t kCapacity=4096;
- static constexpr std::uint32_t kParameterCount=11;
+ static constexpr std::uint32_t kParameterCount=23;
 private:
  std::array<AutomationEvent,kCapacity> entries_{};
  std::size_t size_{0};

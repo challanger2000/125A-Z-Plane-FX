@@ -34,3 +34,11 @@ Development branch: \`feature/morpheus-ultraproteus-289-cubes\`. Separate from 5
 
 ### VSTGUI redraw QA
 Windows Actions uses Direct2D for the plugin GUI, so Win32 `BitBlt` of the frame returned constant white/black pixels despite correct VSTGUI redraws. The native-host test therefore verifies actual custom `CView` construction, repeated `draw()` callbacks, and changed numeric curve values delivered to the line renderer. A development-only test ABI (`ZPlaneResponseQaGet`) exists only when `BUILD_TESTING=ON`. This is **not** a pixel-perfect image test or proof of visual appearance; further visual Studio One acceptance remains open.
+
+## LFO 1 + 2 — development implementation
+- Each LFO: ON, RATE/DIVISION, DEPTH, five shapes (sine, triangle, saw, square, deterministic sample-and-hold), TARGET, DAW SYNC.
+- Targets: Morph (Legacy/X3/Morpheus), Frequency/Transform (Morpheus), Resonance/Q (Legacy/X3). Both LFOs sum bipolar offsets into clamped normalized values.
+- Free 0.05–12 Hz, beat sync 1/64 to 4 bars. VST3 ProcessContext requests PPQ position and tempo; fallback uses a continuous sample/beat accumulator if a host omits position. Modulation changes are at ~5 ms DSP control rate, aligned independently of host blocks.
+- Old v1/v2/v3 state loads into new v4 (23 params) with both LFOs disabled. Existing X3/Morpheus filter values remain base/automated; audio-only effective values are not written back into project state.
+- The provisional response display currently visualizes the **base filter curve**. A true DAW-time telemetry feed to redraw moving LFO output is **not implemented** and must not be claimed.
+- 0 depth and OFF routes preserve legacy PCM. This is a functional development slice, not an audit, finished GUI design, performance acceptance or release.
