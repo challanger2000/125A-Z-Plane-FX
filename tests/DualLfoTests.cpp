@@ -27,7 +27,7 @@ int main(){
  CHECK(std::abs(seek.morph-1.)<1.e-12);
  p[17]=1.;p[19]=1.;p[20]=.75;p[21]=1.;p[22]=1.;
  auto both=L::evaluate(p,0,48000.,{0.,120.},0);
- CHECK(both.morph==1.&&both.x3Q==1.);
+ CHECK(both.morph==0.&&both.x3Q==1.); // triangle at phase 0 is -1; square is +1
  p[11]=0.;p[17]=0.;
  v=L::evaluate(p,15000,48000.,{},0);
  CHECK(v.morph==.5&&v.x3Q==.5);
