@@ -37,7 +37,32 @@ int main() {
  }
  x3.reset();CHECK(!x3.set(0,0.5f,0.5f,48000));
  CHECK(!x3.set(56,0.5f,0.5f,48000));
+ // Negative fault injection: a new bank-load error must invalidate
+ // previously active filter state, not keep rendering stale old-bank PCM.
+ // This catches a subtle failed-reload bug even if hasBanks() is false.
+ CHECK(x3.set(1,0.5f,0.5f,48000));
+ fs::remove(dir/"factory-bank.bin");
+ CHECK(!x3.load(dir,reason));
+ CHECK(!reason.empty()&&!x3.hasBanks());
+ CHECK(!x3.set(1,0.5f,0.5f,48000));
+ outL.fill(17.5f);outR.fill(-17.5f);
+ x3.process(left.data(),right.data(),outL.data(),outR.data(),64,1.,false);
+ for(float s:outL)CHECK(s==17.5f);
+ for(float s:outR)CHECK(s==-17.5f);
+ writeZero(dir/"factory-bank.bin",33u*4u*240u);
+ CHECK(x3.load(dir,reason)&&reason.empty()&&x3.hasBanks());
+ CHECK(x3.set(2,0.5f,0.5f,48000));
+ fs::resize_file(dir/"standard-bank.bin",31u*4u*4u*5u*2u-1u);
+ CHECK(!x3.load(dir,reason));
+ CHECK(!reason.empty()&&!x3.hasBanks());
+ outL.fill(11.f);outR.fill(-11.f);
+ x3.process(left.data(),right.data(),outL.data(),outR.data(),64,1.,false);
+ for(float s:outL)CHECK(s==11.f);
+ for(float s:outR)CHECK(s==-11.f);
+ writeZero(dir/"standard-bank.bin",31u*4u*4u*5u*2u);
+ CHECK(x3.load(dir,reason)&&reason.empty()&&x3.hasBanks());
+ CHECK(x3.set(55,0.5f,0.5f,48000));
  fs::remove_all(dir);
- puts("X3 synthetic 55-mode dispatch and invalid sample rate tests PASS");
+ puts("X3 synthetic 55 modes, bad-bank load rejection, stale-DSP invalidation and recovery PASS");
  return 0;
 }
