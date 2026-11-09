@@ -75,6 +75,25 @@ jobs:
           $binary=(Resolve-Path 'artifact/125A Z-Plane FX.vst3/Contents/x86_64-win/125A Z-Plane FX.vst3').Path
           & 'build/Release/zplane_native_host_tests.exe' $binary
           if ($LASTEXITCODE -ne 0) { throw 'Native host integration failed' }
+      - name: Clean-profile 55-filter embedded X3 test (NO external banks)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $binary=(Resolve-Path 'artifact/125A Z-Plane FX.vst3/Contents/x86_64-win/125A Z-Plane FX.vst3').Path
+          $bank=$env:ZPLANE_X3_BANK_DIR
+          $local=$env:LOCALAPPDATA
+          try {
+            Remove-Item Env:ZPLANE_X3_BANK_DIR -ErrorAction SilentlyContinue
+            $env:LOCALAPPDATA=Join-Path $env:RUNNER_TEMP 'ZPlane-Clean-Test-Profile'
+            New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
+            & 'build/Release/zplane_native_host_tests.exe' $binary '--embedded-smoke'
+            if ($LASTEXITCODE -ne 0) { throw 'Embedded X3 filters failed without any bank files' }
+          } finally {
+            $env:LOCALAPPDATA=$local
+            if ($bank) { $env:ZPLANE_X3_BANK_DIR=$bank }
+            else { Remove-Item Env:ZPLANE_X3_BANK_DIR -ErrorAction SilentlyContinue }
+          }
+          Write-Host '[PASS] ALL 55 X3 filters available solely from DLL resources'
       - name: Independent pinned 125A Plugin Test Lab universal technical baseline
         if: contains(github.event.head_commit.message, '[test-lab]')
         shell: pwsh
@@ -234,7 +253,7 @@ jobs:
           $results=@(Get-ChildItem 'package/Reports' -Recurse -File -Filter ACCEPTANCE.json)
           if ($results.Count -ne 1) { throw 'No unique completed local acceptance report' }
           $proof=Get-Content $results[0].FullName -Raw | ConvertFrom-Json
-          if ($proof.status -ne 'PARTIAL_X3_NOT_RUN' -or
+          if ($proof.status -ne 'PARTIAL_X3_REFERENCE_NOT_RUN' -or
               $proof.actual_asio -ne 'NOT RUN' -or $proof.python_required -ne $false) {
             throw "Owner-local test falsely overclaimed full X3 or ASIO certification: $($proof.status)"
           }
@@ -242,7 +261,8 @@ jobs:
             throw 'Owner-local harness reported a failed stage'
           }
           Write-Host '[PASS] BAT, test binaries, real stereo insert P25, GUI and SHA-256 verification'
-          Write-Host '[NOT RUN] Genuine X3 banks absent from redistributable kit; real DAW/ASIO not tested'
+          Write-Host '[PASS] Embedded 55 modes tested without any bank files'
+          Write-Host '[NOT RUN] Optional external oracle absent; physical ASIO still NOT RUN'
       - name: Produce one self-contained owner-download ZIP (no Python needed)
         shell: pwsh
         run: |

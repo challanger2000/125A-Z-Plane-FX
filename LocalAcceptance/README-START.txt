@@ -16,12 +16,11 @@ Enthalten:
   Tools\*.ps1                     Windows PowerShell 5.1 Testskripte
   SHA256-MANIFEST.json            Original-Paket-Hashvergleich
 
-Nicht enthalten: die originalen X3-Filterbankdaten (Nutzungsrechte offen).
-Eigene berechtigte Dateien factory-bank.bin, standard-bank.bin und
-morph-support.bin in Banks\ ablegen, oder schon im Benutzerordner
-%LOCALAPPDATA%\125A\ZPlaneFX\Banks lassen.
-Ohne diese Dateien: X3-Original-Referenzen werden als NOT RUN markiert.
-Die universelle Stereo-Audio/State-Prüfung läuft trotzdem unabhängig.
+Die drei X3-Filtertabellen sind im VST3 selbst enthalten.
+Alle 55 Filter laufen OHNE zusaetzliche Bankdateien oder Installation.
+Die BAT prueft alle 55 eingebauten Filter zwingend und automatisiert.
+Nur externe wissenschaftliche Referenzvergleiche benoetigen optionale
+separate Forschungsdaten im Verzeichnis Banks\, nicht das Plugin.
 
 Sicherheitsregeln:
   Die Installation verwendet den offiziellen VST3-Benutzerpfad
@@ -33,7 +32,7 @@ Sicherheitsregeln:
 
 Testsemantik:
   PASS = ausgeführte technische Prüfung erfolgreich.
-  PARTIAL_X3_NOT_RUN = keine Originalbanken, X3-Klang nicht überprüft.
+  PARTIAL_X3_REFERENCE_NOT_RUN = eingebaute 55 Filter PASS, externer Referenzvergleich NOT RUN.
   NOT RUN = nicht ausgeführt / keine automatische Abnahme.
   Echte ASIO/ETW-Deadlines, E-MU-Hardware-Klangtreue und die
   kommerziellen Nutzungsrechte sind ausdrücklich NICHT nachgewiesen.

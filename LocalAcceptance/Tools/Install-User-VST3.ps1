@@ -36,21 +36,7 @@ if(-not (Test-Path -LiteralPath $installed -PathType Leaf)){throw 'Kopiertes VST
 $hash=(HashSha256 $installed)
 $original=(HashSha256 $binary)
 if($hash -ine $original){throw 'Installationshash stimmt nicht'}
-$bankRoot=Join-Path $root 'Banks'
-$bankDest=Join-Path $env:LOCALAPPDATA '125A\ZPlaneFX\Banks'
-foreach($name in @('factory-bank.bin','standard-bank.bin','morph-support.bin')){
-  $file=Join-Path $bankRoot $name
-  if(Test-Path -LiteralPath $file -PathType Leaf){
-    New-Item -ItemType Directory -Path $bankDest -Force | Out-Null
-    $target=Join-Path $bankDest $name
-    if(Test-Path -LiteralPath $target){
-      Write-Host ('Schon vorhandene Bank nicht ueberschrieben: '+$name)
-    }else{
-      Copy-Item -LiteralPath $file -Destination $target
-      Write-Host ('Eigene Bank installiert: '+$name)
-    }
-  }
-}
+# Keine Bankdateien zu installieren: alle drei X3-Tabellen sind in der DLL.
 Write-Host ('[PASS] 125A Z-Plane FX im VST3-Benutzerpfad: '+$dest)
 Write-Host 'DAW jetzt neu starten. Kein Admin, keine globale Plugin-Installation.'
 Write-Host 'Echte ASIO-Pruefung und kommerzielle Lizenz weiterhin NICHT freigegeben.'

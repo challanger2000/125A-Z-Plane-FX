@@ -142,6 +142,10 @@ if(Test-Path -LiteralPath $dll){
 [void](RunExe 'Core DSP Unit' (Join-Path $native 'zplane_core_tests.exe') @() 'core.log' $true)
 [void](RunExe 'Automation Unit' (Join-Path $native 'zplane_automation_tests.exe') @() 'automation.log' $true)
 [void](RunExe 'X3 Synthetic Fault Recovery' (Join-Path $native 'zplane_x3_adapter_tests.exe') @() 'x3-synthetic.log' $true)
+# Always test the self-contained VST3, independently of optional reference files.
+if(Test-Path -LiteralPath $dll -PathType Leaf){
+  [void](RunExe 'X3 Embedded 55 Modes (No Banks)' (Join-Path $native 'zplane_native_host_tests.exe') @($dll,'--embedded-smoke') 'x3-embedded-55-modes.log' $true)
+}
 $bankdir=''
 $locations=@((Join-Path $root 'Banks'),(Join-Path $env:LOCALAPPDATA '125A\ZPlaneFX\Banks'))
 if($env:ZPLANE_X3_BANK_DIR){$locations=@($env:ZPLANE_X3_BANK_DIR)+$locations}
@@ -154,8 +158,8 @@ foreach($candidate in $locations){
   if($valid){$bankdir=$candidate;break}
 }
 if(-not $bankdir){
-  Verdict 'X3 Originalbank PCM & RT' 'NOT RUN' 'Drei berechtigte X3-Bankdateien nicht vorhanden' $false
-  $script:warnings.Add('X3-Klangreferenzen nicht ausgefuehrt; kein X3-Klang-PASS.')
+  Verdict 'X3 Separate External Reference Oracle' 'NOT RUN' 'Optionale separate Referenzdateien fehlen; eingebauter X3-Modus separat geprueft' $false
+  $script:warnings.Add('Der eingebaute X3-Filtersatz wurde geprueft. Nur unabhaengige Forschungsreferenzen sind NOT RUN.')
 }else{
   $env:ZPLANE_X3_BANK_DIR=$bankdir
   Verdict 'X3 Bank Lookup' 'PASS' 'Dateien vorhanden, werden von nativen Tests validiert' $false
@@ -169,7 +173,7 @@ try {
   if((Get-Item -LiteralPath $wave).Length -lt 100000){throw 'WAV leer'}
   Verdict 'Original DAW Stereowave 24-bit' 'PASS' '3s PCM erzeugt, kein E-MU-Referenzklang' $true
 }catch{Verdict 'Original DAW Stereowave 24-bit' 'FAIL' $_.Exception.Message $true}
-$status=if($script:fails -gt 0){'FAIL'}elseif(-not $bankdir){'PARTIAL_X3_NOT_RUN'}else{'PASS_TECHNICAL_NOT_ASIO'}
+$status=if($script:fails -gt 0){'FAIL'}elseif(-not $bankdir){'PARTIAL_X3_REFERENCE_NOT_RUN'}else{'PASS_TECHNICAL_NOT_ASIO'}
 $obj=[pscustomobject]@{
   schema='125A-ZPLANE-LOCAL-ACCEPTANCE-v1'
   time_utc=(Get-Date).ToUniversalTime().ToString('o')
@@ -179,7 +183,7 @@ $obj=[pscustomobject]@{
   daw_studio_pro='NOT RUN'
   hardware_emulation='NOT VERIFIED'
   commercial_license='NOT VERIFIED'
-  x3_banks=$(if($bankdir){'PRESENT'}else{'MISSING_NOT_RUN'})
+  x3_optional_reference_banks=$(if($bankdir){'PRESENT'}else{'NOT_RUN'})
   checks=@($script:items.ToArray())
   warnings=@($script:warnings.ToArray())
 }
