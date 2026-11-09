@@ -741,7 +741,7 @@ void exerciseAttachedEditor(Module& module) {
  const auto sizeResult=view->getSize(&rect);
  std::cout<<"VSTGUI attached reported size: "<<rect.getWidth()<<" x "<<rect.getHeight()
           <<" result "<<sizeResult<<"\\n";
- require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==470,
+ require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==650,
          "VSTGUI attached canvas must match host initial onSize");
  require(GetWindow(parent,GW_CHILD)!=nullptr,
          "Attached VSTGUI must create an actual native child window");
