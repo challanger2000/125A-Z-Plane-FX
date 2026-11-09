@@ -2,6 +2,16 @@
 param([switch]$CI)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+function HashSha256([string]$path) {
+  $stream=[IO.File]::OpenRead($path)
+  $hash=[Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($hash.ComputeHash($stream))).Replace('-','')
+  } finally {
+    $hash.Dispose()
+    $stream.Dispose()
+  }
+}
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $report=Join-Path $root ('Reports\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $report -Force | Out-Null
@@ -78,7 +88,7 @@ try {
   foreach($x in @($list.files)){
     $file=Join-Path $root ([string]$x.path)
     if(-not (Test-Path -LiteralPath $file -PathType Leaf)){$misses++;continue}
-    if((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ine [string]$x.sha256){$misses++}
+    if((HashSha256 $file) -ine [string]$x.sha256){$misses++}
   }
   if($misses -ne 0 -or @($list.files).Count -lt 7){throw "$misses falsche/fehlende Dateien"}
   Verdict 'SHA256 Package Integrity' 'PASS' ("$(@($list.files).Count) Dateihashes korrekt") $true
