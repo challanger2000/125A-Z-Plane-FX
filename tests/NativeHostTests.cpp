@@ -416,7 +416,7 @@ void exerciseNativeGUIEdits(Module& module) {
  require(view!=nullptr,"Create real GUI control editor");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "GUI control editor attach");
- ViewRect rect{0,0,900,650};
+ ViewRect rect{0,0,900,835};
  require(view->onSize(&rect)==kResultOk,"GUI control host onSize");
  nativeGuiPump();
  struct SliderPoint {ParamID id;int x;int y;int width;};
@@ -505,9 +505,9 @@ void exerciseNativeGUIOptionMenus(Module& module) {
  require(view!=nullptr,"Option-menu native editor creation");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "Option-menu native editor attachment");
- ViewRect rect{0,0,900,650};
+ ViewRect rect{0,0,900,835};
  require(view->onSize(&rect)==kResultOk,
-         "Option-menu native editor 900x650 onSize");
+         "Option-menu native editor 900x835 onSize");
  nativeGuiPump();
  HWND canvas=GetWindow(parent,GW_CHILD);
  require(canvas!=nullptr,"VSTGUI child HWND for option-menu key events");
@@ -665,7 +665,7 @@ void exerciseNativeGUIMousePopups(Module& module) {
  require(view!=nullptr,"Native popup editor creation");
  require(view->attached(parent,kPlatformTypeHWND)==kResultOk,
          "Native popup editor attach");
- ViewRect rect{0,0,900,650};
+ ViewRect rect{0,0,900,835};
  require(view->onSize(&rect)==kResultOk,
          "Native popup editor host sizing");
  nativeGuiPump();
@@ -717,7 +717,7 @@ void exerciseNativeGUIMousePopups(Module& module) {
           <<"live VST3 host edits and state recall\\n";
 }
 void exerciseAttachedEditor(Module& module) {
- // The previous smoke only queried the 900x650 dimensions. That cannot
+ // The previous smoke only queried the 900x835 dimensions. That cannot
  // catch malformed child-view definitions: actually attach the VSTGUI
  // editor to an HWND and require it to create a native child window.
  Instance instance(module);
@@ -735,13 +735,13 @@ void exerciseAttachedEditor(Module& module) {
  // Simulate the VST3 host's documented onSize callback after it has
  // allocated the editor HWND. The prior native probe never performed this
  // host step, so the editor reported its initial 0x0 platform frame.
- ViewRect requested{0,0,900,650};
+ ViewRect requested{0,0,900,835};
  require(view->onSize(&requested)==kResultOk,"Host initial editor onSize callback");
  ViewRect rect{};
  const auto sizeResult=view->getSize(&rect);
  std::cout<<"VSTGUI attached reported size: "<<rect.getWidth()<<" x "<<rect.getHeight()
           <<" result "<<sizeResult<<"\\n";
- require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==650,
+ require(sizeResult==kResultOk&&rect.getWidth()==900&&rect.getHeight()==835,
          "VSTGUI attached canvas must match host initial onSize");
  require(GetWindow(parent,GW_CHILD)!=nullptr,
          "Attached VSTGUI must create an actual native child window");

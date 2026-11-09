@@ -23,3 +23,11 @@ Development branch: \`feature/morpheus-ultraproteus-289-cubes\`. Separate from 5
 - Compares every non-null cube (1..288) against upstream coefficients and analytical filter response at **five 3D settings × five sample rates** (including native firmware rate). Any missing/invalid case, silent fallback or mismatched coefficient is a regression failure.
 - The seven-pole-pair signal transfer uses both recovered Cartesian components a/b; evaluating the native cosine/sine firmware approximations must preserve a²+b² rather than substituting radius².
 - Physical hardware equivalence and nonlinear behavior still require independent hardware/audio references and host acceptance.
+
+## Functional VSTGUI filter display
+- Custom view `125AFilterResponse`, 256 log-spaced bins from 20 Hz to 20 kHz, visible -48..+24 dB. The editor remains a deliberately provisional functional UI (900×835).
+- **Morpheus/UltraProteus**: complex frequency response of the same seven-stage coefficients as the audio engine; Dry/Wet and Bypass mixed in the complex domain; the Null Cube is exactly flat. Changes in preset, Morph, Frequency and Transform redraw on the UI thread at up to 10 Hz.
+- **Legacy**: precise RBJ biquad transfer from active Mode/Cutoff/Q, including Dry/Wet, Bypass.
+- **X3**: an independent GUI-thread X3ResearchAdapter instance loads the embedded bank through the same resource loader and measures 8192-sample 48 kHz impulse response; radix-2 FFT and complex-bin interpolation provide the frequency curve. Failed bank load visibly says response unavailable: **no fake curve**.
+- Chart explicitly labels 48 kHz as a fixed reference sample rate, not the host's actual rate. The finite X3 impulse introduces low-frequency/tail approximation and cannot be called hardware-exact. Audio callbacks never compute the graph, FFT or redraw.
+- Automated tests cover analytic transfer, wet/bypass/null identity, Morpheus-axis response, X3 no-fallback, and native plugin GUI attachment, plus the preexisting VST3 host regression matrix.

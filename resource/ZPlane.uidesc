@@ -31,9 +31,9 @@
         "attributes": {
           "class": "CViewContainer",
           "origin": "0, 0",
-          "size": "900, 650",
-          "minSize": "900, 650",
-          "maxSize": "900, 650",
+          "size": "900, 835",
+          "minSize": "900, 835",
+          "maxSize": "900, 835",
           "background-color": "PanelDark",
           "transparent": "false",
           "mouse-enabled": "true"
@@ -419,6 +419,16 @@
               "style-no-frame": "true",
               "transparent": "true",
               "mouse-enabled": "false"
+            }
+          },
+          "FilterDisplay": {
+            "attributes": {
+              "class": "CView",
+              "custom-view-name": "125AFilterResponse",
+              "origin": "34, 637",
+              "size": "830, 178",
+              "mouse-enabled": "false",
+              "transparent": "false"
             }
           }
         }

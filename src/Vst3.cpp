@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include "FilterResponseView.h"
 
 namespace zplane {
 using namespace Steinberg;
@@ -413,6 +414,12 @@ public:
 };
 class Controller final : public EditController, public VSTGUI::VST3EditorDelegate {
 public:
+ VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr name,
+      const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
+      VSTGUI::VST3Editor*) override {
+  if(!name||std::strcmp(name,"125AFilterResponse")!=0)return nullptr;
+  return new FilterResponseView(VSTGUI::CRect(0.,0.,830.,178.),this);
+ }
  IPlugView* PLUGIN_API createView(FIDString name) override {
   if(!name||std::strcmp(name,ViewType::kEditor)!=0)return nullptr;
   // The SDK's Win32 resource resolver may point at the host executable.

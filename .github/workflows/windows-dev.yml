@@ -40,7 +40,7 @@ jobs:
       - name: Build prototype, standalone tests and Steinberg Validator
         shell: pwsh
         run: |
-          cmake --build build --config Release --target ZPlaneFX zplane_core_tests zplane_automation_tests zplane_morpheus_tests zplane_morpheus_oracle_tests zplane_native_host_tests zplane_x3_adapter_tests zplane_x3_real_adapter_tests zplane_x3_realtime_audit_tests zplane_x3_original_factory_reference zplane_x3_original_extended_reference validator --parallel 2
+          cmake --build build --config Release --target ZPlaneFX zplane_core_tests zplane_automation_tests zplane_morpheus_tests zplane_filter_display_tests zplane_morpheus_oracle_tests zplane_native_host_tests zplane_x3_adapter_tests zplane_x3_real_adapter_tests zplane_x3_realtime_audit_tests zplane_x3_original_factory_reference zplane_x3_original_extended_reference validator --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'MSVC build failed' }
       - name: Actual Release-mode functional DSP tests
         shell: pwsh
@@ -157,7 +157,7 @@ jobs:
           $ErrorActionPreference='Stop'
           New-Item -ItemType Directory -Path 'native-acceptance' -Force | Out-Null
           foreach ($name in @('zplane_core_tests.exe','zplane_automation_tests.exe','zplane_morpheus_tests.exe',
-               'zplane_morpheus_oracle_tests.exe',
+               'zplane_filter_display_tests.exe','zplane_morpheus_oracle_tests.exe',
               'zplane_x3_adapter_tests.exe','zplane_x3_real_adapter_tests.exe',
               'zplane_x3_realtime_audit_tests.exe','zplane_native_host_tests.exe')) {
             $item=@(Get-ChildItem build -File -Recurse -Filter $name)
