@@ -80,7 +80,10 @@ jobs:
           }
           & $validator.FullName (Resolve-Path 'artifact/125A Z-Plane FX.vst3').Path
           if ($LASTEXITCODE -ne 0) {
-            if (Test-Path 'ZPLANE-CONTROLLER-DIAG.log') { Get-Content 'ZPLANE-CONTROLLER-DIAG.log' }
+            Write-Host "Validator diagnostic temp path: $env:TEMP"
+            $diag=Join-Path $env:TEMP 'ZPLANE-CONTROLLER-DIAG.log'
+            if (Test-Path $diag) { Get-Content -Path $diag }
+            Get-ChildItem -Path '.' -File -Recurse -Filter 'ZPLANE-CONTROLLER-DIAG.log' -ErrorAction SilentlyContinue | ForEach-Object { Get-Content -LiteralPath $_.FullName }
             throw "Steinberg Validator failed on final staged bundle, exit=$LASTEXITCODE"
           }
       - name: Native packaged host audio, automation and recall

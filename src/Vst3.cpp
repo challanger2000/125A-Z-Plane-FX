@@ -41,7 +41,12 @@ constexpr DualLfo::Params defaults={0.,0.5,0.5,1.,0.,0.,0.,0.,0.5,0.5,0.5,
   0.,.5,0.,0.,.25,1., 0.,.5,0.,0.,.25,1.};
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
 inline void traceControllerLifecycle(const char* message) noexcept {
- HANDLE file=CreateFileA("ZPLANE-CONTROLLER-DIAG.log",FILE_APPEND_DATA,
+ char directory[MAX_PATH]{};
+ const auto size=GetTempPathA(MAX_PATH,directory);
+ if(size==0||size>=MAX_PATH)return;
+ std::string path(directory);
+ path+="ZPLANE-CONTROLLER-DIAG.log";
+ HANDLE file=CreateFileA(path.c_str(),FILE_APPEND_DATA,
     FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
  if(file!=INVALID_HANDLE_VALUE){
   DWORD wrote=0;
