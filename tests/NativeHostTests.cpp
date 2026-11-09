@@ -159,7 +159,7 @@ void render(Instance& inst,int32 format,ParameterChanges* changes,bool verify){
 }
 void exerciseConcurrentStateSnapshots(Module& module) {
  // Actual staged VST3 with a live audio thread repeatedly changing ALL
- // six parameters while an independent control thread saves project state.
+ // eleven parameters while an independent control thread saves project state.
  // Each save must be one COMPLETE vector (defaults/A/B), never a mixture.
  Instance host(module);
  host.setup(kSample32,48000.,64);
@@ -771,7 +771,7 @@ void exercise(Module& module,int32 format){
  else render<double>(i,format,&changes,true);
  Steinberg::ResizableMemoryIBStream saved;
  require(i.component->getState(&saved)==kResultOk,"Component state save");
- require(saved.getCursor()==56,"Expected state v2 size");
+ require(saved.getCursor()==96,"Expected 8-byte header plus eleven v3 doubles");
  saved.rewind();
  require(i.controller->setComponentState(&saved)==kResultOk,"Controller project recall");
  require(i.controller->getParamNormalized(4)==1.,"Controller bypass matches processor");
