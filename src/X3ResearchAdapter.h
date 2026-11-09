@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <limits>
 #include <string>
 
 namespace zplane {
@@ -143,8 +144,13 @@ public:
    // buffers. A finite double > FLT_MAX can overflow during conversion;
    // never pass infinity into stateful IIR sections. Dry/bypass retain
    // the exact original host precision.
-   const float fa=static_cast<float>(dryL),fb=static_cast<float>(dryR);
-   const float a=std::isfinite(fa)?fa:0.f,b=std::isfinite(fb)?fb:0.f;
+   // Compare in double BEFORE narrowing: double->float overflow may
+   // raise FE_OVERFLOW in a host with unmasked FP exceptions, before any
+   // post-cast isfinite check can execute.
+   constexpr double maxFloat=static_cast<double>(std::numeric_limits<float>::max());
+   const double wideA=static_cast<double>(dryL),wideB=static_cast<double>(dryR);
+   const float a=wideA>=-maxFloat&&wideA<=maxFloat?static_cast<float>(dryL):0.f;
+   const float b=wideB>=-maxFloat&&wideB<=maxFloat?static_cast<float>(dryR):0.f;
    float pa=primaryL_.process_sample(a),pb=primaryR_.process_sample(b);
    // Upstream finite-but-extreme samples can still overflow the research
    // filter's INTERNAL float state. Reset only the affected channel and
