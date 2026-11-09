@@ -740,6 +740,18 @@ std::uint64_t nativeFilterGraphFingerprint(HWND canvas) {
          "Filter graph actual HWND pixels");
  GdiFlush();
  const auto* bytes=static_cast<const std::uint8_t*>(pixels);
+ static unsigned captures=0;
+ if(captures++<5){
+  std::cout<<"GRAPH PIXEL SAMPLE #"<<captures;
+  for(const auto& p:std::array<POINT,6>{{{20,20},{50,40},{200,80},{400,80},{600,130},{810,170}}}){
+   const auto i=(static_cast<std::size_t>(p.y)*width+p.x)*4;
+   std::cout<<" ("<<p.x<<","<<p.y<<")=RGB("
+            <<unsigned(bytes[i+2])<<","<<unsigned(bytes[i+1])<<","
+            <<unsigned(bytes[i])<<")";
+  }
+  std::cout<<"\n";
+ }
+ const auto* unused=bytes;(void)unused;
  std::uint64_t checksum=14695981039346656037ull;
  for(std::size_t i=0;i<static_cast<std::size_t>(width)*height*4;++i){
   checksum^=bytes[i];
