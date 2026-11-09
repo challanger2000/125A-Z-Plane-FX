@@ -58,7 +58,8 @@ inline Complex legacyTransfer(Params const& p,double hz,double rate=kRate) noexc
   case 2:b0=alpha;b1=0.;b2=-alpha;break;
   case 3:b0=1.;b1=-2.*co;b2=1.;break;
  }
- const auto norm=1./(1.+alpha),zz=z(hz,rate);
+ const auto norm=1./(1.+alpha);
+ const auto zz=z(hz,rate);
  const Complex numerator=(b0+b1*zz+b2*zz*zz)*norm;
  const Complex denominator=Complex{1.,0.}-2.*co*norm*zz+
       (1.-alpha)*norm*zz*zz;
