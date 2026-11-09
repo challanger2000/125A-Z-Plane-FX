@@ -74,6 +74,50 @@ jobs:
           $binary=(Resolve-Path 'artifact/125A Z-Plane FX.vst3/Contents/x86_64-win/125A Z-Plane FX.vst3').Path
           & 'build/Release/zplane_native_host_tests.exe' $binary
           if ($LASTEXITCODE -ne 0) { throw 'Native host integration failed' }
+      - name: Independent pinned 125A Plugin Test Lab universal technical baseline
+        if: contains(github.event.head_commit.message, '[test-lab]')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git clone --depth 1 --branch main https://github.com/challanger2000/125A-Plugin-Test-Lab.git lab
+          if ($LASTEXITCODE -ne 0) { throw 'Test Lab checkout failed' }
+          $labSha=(git -C lab rev-parse HEAD).Trim()
+          if ($labSha -ne 'bc839e345bfc5657f9196f7db8d6945584e1bec7') {
+            throw "Unreviewed Test Lab version $labSha"
+          }
+          cmake -S lab -B lab-build -A x64 -DFETCHCONTENT_SOURCE_DIR_VST3SDK="$env:GITHUB_WORKSPACE/sdk"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Test Lab configuration failed' }
+          cmake --build lab-build --config Release --target TestLabGUI TestLabHost TestLabStateStress --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Independent Test Lab native hosts failed to compile' }
+          $gui=@(Get-ChildItem lab-build -Recurse -File -Filter '125A_Test_Lab_GUI.exe')
+          $audio=@(Get-ChildItem lab-build -Recurse -File -Filter '125A_Test_Lab_Host.exe')
+          $stress=@(Get-ChildItem lab-build -Recurse -File -Filter '125A_Test_Lab_State_Stress.exe')
+          if ($gui.Count -ne 1 -or $audio.Count -ne 1 -or $stress.Count -ne 1) {
+            throw 'Exactly one native Test Lab executable per required host must exist'
+          }
+          $plugin=(Resolve-Path 'artifact/125A Z-Plane FX.vst3').Path
+          $PSNativeCommandUseErrorActionPreference=$false
+          python lab/tests/run_universal_qa.py --plugin "$plugin" --gui-host "$($gui[0].FullName)" --audio-host "$($audio[0].FullName)" --stress-host "$($stress[0].FullName)" --run-technical-baseline --timeout 110 --out lab-evidence
+          $exitCode=$LASTEXITCODE
+          if (-not (Test-Path 'lab-evidence/UNIVERSAL-QA-RESULT.json')) {
+            throw "Independent Test Lab produced no results (exit $exitCode)"
+          }
+          $report=Get-Content 'lab-evidence/UNIVERSAL-QA-RESULT.json' -Raw | ConvertFrom-Json
+          if ($exitCode -ne 0 -or $report.status -ne 'TECHNICAL_BASELINE_PASS' -or
+              $report.discovery -ne 'PASS' -or $report.native_technical -ne 'PASS' -or
+              $report.required_feature_coverage -ne 'NOT DECLARED' -or
+              $report.release_approved -ne $false) {
+            throw "Universal Test Lab technical baseline failed or overstated results: $($report.status)"
+          }
+          Write-Host '125A Test Lab TECHNICAL_BASELINE_PASS (no real DAW/ASIO or commercial release claim)'
+      - name: Retain independent Test Lab evidence
+        if: always() && contains(github.event.head_commit.message, '[test-lab]')
+        uses: actions/upload-artifact@v4
+        with:
+          name: 125A-ZPlaneFX-Independent-Test-Lab-P74-Evidence
+          path: lab-evidence/
+          if-no-files-found: warn
+          retention-days: 4
       - name: Upload DEVELOPMENT build, never mark as release
         uses: actions/upload-artifact@v4
         with:
