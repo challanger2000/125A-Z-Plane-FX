@@ -68,7 +68,10 @@ jobs:
           $validator=Get-ChildItem -Path build -Recurse -File -Filter validator.exe | Select-Object -First 1
           if (-not $validator) { throw 'Official Steinberg validator unavailable' }
           & $validator.FullName (Resolve-Path 'artifact/125A Z-Plane FX.vst3').Path
-          if ($LASTEXITCODE -ne 0) { throw "Steinberg Validator failed on final staged bundle, exit=$LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path 'ZPLANE-CONTROLLER-DIAG.log') { Get-Content 'ZPLANE-CONTROLLER-DIAG.log' }
+            throw "Steinberg Validator failed on final staged bundle, exit=$LASTEXITCODE"
+          }
       - name: Native packaged host audio, automation and recall
         shell: pwsh
         run: |
