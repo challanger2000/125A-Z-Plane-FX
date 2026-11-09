@@ -62,6 +62,16 @@ int main() {
  writeZero(dir/"standard-bank.bin",31u*4u*4u*5u*2u);
  CHECK(x3.load(dir,reason)&&reason.empty()&&x3.hasBanks());
  CHECK(x3.set(55,0.5f,0.5f,48000));
+ fs::remove(dir/"morph-support.bin");
+ CHECK(!x3.load(dir,reason));
+ CHECK(!reason.empty()&&!x3.hasBanks());
+ outL.fill(9.f);outR.fill(-9.f);
+ x3.process(left.data(),right.data(),outL.data(),outR.data(),64,1.,false);
+ for(float v:outL)CHECK(v==9.f);
+ for(float v:outR)CHECK(v==-9.f);
+ writeZero(dir/"morph-support.bin",402);
+ CHECK(x3.load(dir,reason)&&reason.empty()&&x3.hasBanks());
+ CHECK(x3.set(55,0.5f,0.5f,48000));
  fs::remove_all(dir);
  puts("X3 synthetic 55 modes, bad-bank load rejection, stale-DSP invalidation and recovery PASS");
  return 0;
