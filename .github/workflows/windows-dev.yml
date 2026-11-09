@@ -7,6 +7,7 @@ on:
       - 'CMakeLists.txt'
       - 'src/**'
       - 'tests/**'
+      - 'LocalAcceptance/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -131,3 +132,129 @@ jobs:
           name: 125A-Z-Plane-FX-v0.1.0-PROTOTYPE-WINDOWS
           path: artifact/
           retention-days: 4
+      - name: Stage native Windows test executables for owner-local QA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path 'native-acceptance' -Force | Out-Null
+          foreach ($name in @('zplane_core_tests.exe','zplane_automation_tests.exe',
+              'zplane_x3_adapter_tests.exe','zplane_x3_real_adapter_tests.exe',
+              'zplane_x3_realtime_audit_tests.exe','zplane_native_host_tests.exe')) {
+            $item=@(Get-ChildItem build -File -Recurse -Filter $name)
+            if ($item.Count -ne 1) { throw "Expected one compiled native test executable: $name, found $($item.Count)" }
+            Copy-Item -LiteralPath $item[0].FullName -Destination (Join-Path 'native-acceptance' $name)
+          }
+      - name: Preserve native owner-local QA executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: 125A-ZPlaneFX-NATIVE-TEST-EXE-WINDOWS
+          path: native-acceptance/
+          retention-days: 7
+
+  local-acceptance-kit:
+    needs: build-and-test
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Obtain exact VST3 and native test executables from THIS run
+        uses: actions/download-artifact@v4
+        with:
+          name: 125A-Z-Plane-FX-v0.1.0-PROTOTYPE-WINDOWS
+          path: package/Plugin
+      - name: Obtain exact native tests from THIS run
+        uses: actions/download-artifact@v4
+        with:
+          name: 125A-ZPlaneFX-NATIVE-TEST-EXE-WINDOWS
+          path: package/Native
+      - name: Build independent 125A Test Lab Windows EXEs from immutable merged main
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git clone --recursive --depth 1 --branch v3.8.1_build_84 https://github.com/steinbergmedia/vst3sdk.git sdk
+          if ($LASTEXITCODE -ne 0) { throw 'Steinberg SDK download failed' }
+          $sdkSha=(git -C sdk rev-parse HEAD).Trim()
+          if ($sdkSha -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96') {
+            throw "Unexpected SDK version $sdkSha"
+          }
+          git clone --depth 1 --branch main https://github.com/challanger2000/125A-Plugin-Test-Lab.git lab
+          if ($LASTEXITCODE -ne 0) { throw 'Test Lab source download failed' }
+          git -C lab fetch --depth 1 origin 58dc3ba730bb6297ddf7636254d62d16d5bd7f9e
+          if ($LASTEXITCODE -ne 0) { throw 'Immutable Lab SHA unavailable' }
+          git -C lab checkout --detach 58dc3ba730bb6297ddf7636254d62d16d5bd7f9e
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot pin merged Lab source' }
+          $labSha=(git -C lab rev-parse HEAD).Trim()
+          if ($labSha -ne '58dc3ba730bb6297ddf7636254d62d16d5bd7f9e') {
+            throw "Unreviewed Lab revision $labSha"
+          }
+          cmake -S lab -B lab-build -A x64 -DFETCHCONTENT_SOURCE_DIR_VST3SDK="$env:GITHUB_WORKSPACE/sdk"
+          if ($LASTEXITCODE -ne 0) { throw 'Lab configure failed' }
+          cmake --build lab-build --config Release --target TestLabGUI TestLabHost TestLabStateStress --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Lab build failed' }
+          New-Item -ItemType Directory -Path 'package/TestLab' -Force | Out-Null
+          foreach ($name in @('125A_Test_Lab_GUI.exe','125A_Test_Lab_Host.exe',
+                '125A_Test_Lab_State_Stress.exe')) {
+            $item=@(Get-ChildItem lab-build -File -Recurse -Filter $name)
+            if ($item.Count -ne 1) { throw "Expected one built Lab host: $name, got $($item.Count)" }
+            Copy-Item -LiteralPath $item[0].FullName -Destination (Join-Path 'package/TestLab' $name)
+          }
+      - name: Compose per-user safe test kit and immutable SHA-256 manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Copy-Item -Path 'LocalAcceptance/*' -Destination 'package' -Recurse -Force
+          New-Item -ItemType Directory -Path 'package/Banks' -Force | Out-Null
+          'No third-party bank files redistributed. Supply your own legitimate original banks.' |
+            Set-Content -LiteralPath 'package/Banks/BANKS-NOT-INCLUDED.txt'
+          $packageRoot=(Resolve-Path package).Path
+          $items=@(Get-ChildItem 'package/Plugin','package/Native','package/TestLab' -Recurse -File)
+          if ($items.Count -lt 9) { throw "Incomplete owner-local package; only $($items.Count) binaries/resources" }
+          $proof=@($items | ForEach-Object {
+            [pscustomobject]@{
+              path=$_.FullName.Substring($packageRoot.Length+1).Replace('\','/')
+              sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+            }
+          })
+          [pscustomobject]@{
+            plugin_source_commit="$env:GITHUB_SHA"
+            test_lab_source_commit='58dc3ba730bb6297ddf7636254d62d16d5bd7f9e'
+            never_release=$true
+            files=$proof
+          } | ConvertTo-Json -Depth 8 |
+            Set-Content -LiteralPath 'package/SHA256-MANIFEST.json' -Encoding UTF8
+          $binary='package/Plugin/125A Z-Plane FX.vst3/Contents/x86_64-win/125A Z-Plane FX.vst3'
+          if (-not (Test-Path -LiteralPath $binary)) { throw 'Exact staged Windows VST3 bundle not in package' }
+          if (-not (Test-Path 'package/Tools/Run-Local-Tests.ps1')) { throw 'Local Windows harness absent' }
+      - name: Actually run owner-local BAT/PowerShell harness on Windows runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & 'package/00-START-TEST.bat' -CI
+          if ($LASTEXITCODE -ne 0) { throw 'Owner-local BAT acceptance failed' }
+          $results=@(Get-ChildItem 'package/Reports' -Recurse -File -Filter ACCEPTANCE.json)
+          if ($results.Count -ne 1) { throw 'No unique completed local acceptance report' }
+          $proof=Get-Content $results[0].FullName -Raw | ConvertFrom-Json
+          if ($proof.status -ne 'PARTIAL_X3_NOT_RUN' -or
+              $proof.actual_asio -ne 'NOT RUN' -or $proof.python_required -ne $false) {
+            throw "Owner-local test falsely overclaimed full X3 or ASIO certification: $($proof.status)"
+          }
+          if (@($proof.checks | Where-Object { $_.status -eq 'FAIL' }).Count -gt 0) {
+            throw 'Owner-local harness reported a failed stage'
+          }
+          Write-Host '[PASS] BAT, test binaries, real stereo insert P25, GUI and SHA-256 verification'
+          Write-Host '[NOT RUN] Genuine X3 banks absent from redistributable kit; real DAW/ASIO not tested'
+      - name: Produce one self-contained owner-download ZIP (no Python needed)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Remove-Item 'package/Reports' -Recurse -Force
+          Compress-Archive -Path 'package/*' -DestinationPath '125A-ZPlaneFX-Windows-LOCAL-ABNAHME.zip' -CompressionLevel Optimal
+          if ((Get-Item '125A-ZPlaneFX-Windows-LOCAL-ABNAHME.zip').Length -lt 500000) {
+            throw 'Unexpectedly small Windows local acceptance kit'
+          }
+      - name: Upload Windows package for owner testing (DEVELOPMENT ONLY)
+        uses: actions/upload-artifact@v4
+        with:
+          name: 125A-ZPlaneFX-Windows-LOCAL-ABNAHME-NO-PYTHON
+          path: 125A-ZPlaneFX-Windows-LOCAL-ABNAHME.zip
+          retention-days: 14
