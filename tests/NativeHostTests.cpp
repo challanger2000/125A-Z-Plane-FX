@@ -553,10 +553,16 @@ void nativeGuiMouseChooseNext(HWND parent,HWND canvas,int x,int y,
    Sleep(25);
   }
   if(!done.load()){
+   // The native popup initially has no selected row; its first
+   // Down can focus entry zero even after Home. A second Down
+   // moves to the intended first non-default option.
+   Sleep(130);
    nativeGuiInjectKey(VK_HOME);
-   Sleep(70);
+   Sleep(95);
    nativeGuiInjectKey(VK_DOWN);
-   Sleep(70);
+   Sleep(95);
+   nativeGuiInjectKey(VK_DOWN);
+   Sleep(95);
    nativeGuiInjectKey(VK_RETURN);
    Sleep(300);
    if(!done.load()){
