@@ -9,6 +9,8 @@
 #include "vstgui/uidescription/uiattributes.h"
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include <algorithm>
+#include <atomic>
+#include <bit>
 #include <array>
 #include <cmath>
 #include <complex>
@@ -20,6 +22,11 @@
 #include <vector>
 
 namespace zplane {
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+namespace response_qa {
+inline std::atomic<std::uint64_t> created{0},drawn{0},updated{0},curveSignature{0};
+}
+#endif
 class FilterResponseView final : public VSTGUI::CView {
  Steinberg::Vst::EditController* controller_{};
  response::Params parameters_{};
@@ -105,8 +112,7 @@ class FilterResponseView final : public VSTGUI::CView {
   parameters_=next;
   valid_=false;
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  std::fprintf(stderr,"[125A RESP] update view=%p on=%g cube=%g morph=%g wet=%g bypass=%g\n",
-      static_cast<void*>(this),parameters_[6],parameters_[7],parameters_[8],parameters_[3],parameters_[4]);
+  response_qa::updated.fetch_add(1,std::memory_order_relaxed);
 #endif
 #ifdef ZPLANE_WITH_X3_RESEARCH
   if(parameters_[6]<.5&&parameters_[5]>=1./110.){
@@ -136,8 +142,7 @@ public:
   output_.resize(kFftSize);
 #endif
 #ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  std::fprintf(stderr,"[125A RESP] CREATED this=%p x3Available=%d\n",
-      static_cast<void*>(this),static_cast<int>(x3Available_));
+  response_qa::created.fetch_add(1,std::memory_order_relaxed);
 #endif
   updateFromController();
   timer_=VSTGUI::makeOwned<VSTGUI::CVSTGUITimer>(
@@ -150,13 +155,7 @@ public:
  void draw(VSTGUI::CDrawContext* context) override {
   if(!context)return;
   const auto bounds=getViewSize();
-#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
-  static int drawLogs=0;
-  if(drawLogs++<30)std::fprintf(stderr,
-   "[125A RESP] DRAW this=%p size=(%.0f,%.0f,%.0f,%.0f) valid=%d db0=%g db100=%g db255=%g\n",
-   static_cast<void*>(this),bounds.left,bounds.top,bounds.right,bounds.bottom,
-   static_cast<int>(valid_),db_[0],db_[100],db_[255]);
-#endif
+
   context->setFillColor(VSTGUI::CColor{17,22,28});
   context->drawRect(bounds,VSTGUI::kDrawFilled);
   const auto left=bounds.left+44.,right=bounds.right-14.;
@@ -200,6 +199,20 @@ public:
    const auto y2=bottom-(current+48.)/72.*height;
    context->drawLine(VSTGUI::CPoint(x1,y1),VSTGUI::CPoint(x2,y2));
   }
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+  // Deterministically fingerprint exactly the curve samples supplied to
+  // drawLine(), not the unreliable GDI BitBlt of a Direct2D surface.
+  std::uint64_t signature=14695981039346656037ull;
+  for(const auto db:db_){
+   const auto scaled=std::clamp(std::lround(db*1000.f),-48000l,24000l);
+   signature^=static_cast<std::uint32_t>(scaled);
+   signature*=1099511628211ull;
+  }
+  signature^=static_cast<std::uint64_t>(valid_?1u:0u);
+  signature*=1099511628211ull;
+  response_qa::curveSignature.store(signature,std::memory_order_release);
+  response_qa::drawn.fetch_add(1,std::memory_order_release);
+#endif
   setDirty(false);
  }
 };

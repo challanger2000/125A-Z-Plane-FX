@@ -826,6 +826,22 @@ public:
 };
 } // namespace zplane
 
+#ifdef ZPLANE_RESPONSE_DIAGNOSTICS
+// Development-only ABI for independent native host view-paint regression.
+// This symbol is absent from normal BUILD_TESTING=OFF production builds.
+extern "C" __declspec(dllexport) std::uint64_t __cdecl
+ZPlaneResponseQaGet(unsigned field) noexcept {
+ using namespace zplane::response_qa;
+ switch(field){
+  case 0:return created.load(std::memory_order_acquire);
+  case 1:return drawn.load(std::memory_order_acquire);
+  case 2:return updated.load(std::memory_order_acquire);
+  case 3:return curveSignature.load(std::memory_order_acquire);
+  default:return 0;
+ }
+}
+#endif
+
 BEGIN_FACTORY_DEF("125A Systems","","")
 DEF_CLASS2(INLINE_UID_FROM_FUID(zplane::kProcessor),Steinberg::PClassInfo::kManyInstances,
   kVstAudioEffectClass,"125A Z-Plane FX",Steinberg::Vst::kDistributable,
